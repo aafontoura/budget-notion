@@ -1,0 +1,35 @@
+# Core dependencies
+notion-client==2.7.0
+pandas==2.2.0
+click==8.1.7
+dependency-injector==4.41.0
+python-dotenv==1.0.1
+pydantic==2.9.0
+pydantic-settings==2.6.1
+sqlalchemy==2.0.36
+openpyxl==3.1.2
+
+# Development dependencies
+pytest==8.3.4
+pytest-cov==6.0.0
+black==24.10.0
+ruff==0.8.4
+mypy==1.13.0
+pre-commit==4.0.1
+
+# ML dependencies (optional, install with pip install -r requirements.txt -r requirements-ml.txt)
+# sentence-transformers==2.5.0
+# scikit-learn==1.4.0
+# torch==2.2.0
+
+# PDF parsing (optional)
+# tabula-py==2.9.0
+# pdfplumber==0.11.0
+
+# API (optional)
+# fastapi==0.109.0
+# uvicorn[standard]==0.27.0
+
+# Security
+cryptography==46.0.3
+python-multipart==0.0.19

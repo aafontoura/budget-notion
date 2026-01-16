@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: budget-notion
+    image: budget-notion:latest
+
+    # Environment variables (non-sensitive configuration)
+    environment:
+      - REPOSITORY_TYPE=notion
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=production
+      - DEFAULT_CATEGORY=Uncategorized
+
+    # Docker Secrets (recommended for sensitive data)
+    secrets:
+      - notion_token
+      - notion_database_id
+      - encryption_key
+
+    # Volumes for persistent data
+    volumes:
+      - ../data:/app/data
+      - ../uploads:/app/uploads
+
+    # Override command for interactive CLI
+    # For one-off commands, use: docker-compose run app python -m src.interfaces.cli.main <command>
+    command: ["python", "-m", "src.interfaces.cli.main", "config-info"]
+
+    # Resource limits (optional, recommended for production)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Network (optional, for future API service)
+    # ports:
+    #   - "8000:8000"
+
+    # Health check (optional, for future API service)
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
+
+# Docker Secrets configuration
+secrets:
+  notion_token:
+    file: ../secrets/notion_token.txt
+  notion_database_id:
+    file: ../secrets/notion_database_id.txt
+  encryption_key:
+    file: ../secrets/encryption_key.txt
+
+# Volumes configuration
+volumes:
+  data:
+  uploads:
