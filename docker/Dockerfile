@@ -1,7 +1,7 @@
 # Dockerfile for budget-notion application
-# Python 3.14+ base image
+# Python 3.13 base image (3.14 not yet supported by all dependencies)
 
-FROM python:3.14-slim
+FROM python:3.13-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \

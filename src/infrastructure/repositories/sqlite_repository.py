@@ -1,5 +1,7 @@
 """SQLite implementation of TransactionRepository for local caching and testing."""
 
+from __future__ import annotations
+
 import logging
 import sqlite3
 from datetime import datetime
@@ -135,7 +137,7 @@ class SQLiteTransactionRepository(TransactionRepository):
         account: Optional[str] = None,
         limit: Optional[int] = None,
         offset: int = 0,
-    ) -> list[Transaction]:
+    ) -> "list[Transaction]":
         """List transactions with optional filtering."""
         try:
             # Build query with filters
@@ -247,7 +249,7 @@ class SQLiteTransactionRepository(TransactionRepository):
             logger.error(f"Error while deleting transaction: {e}")
             raise RepositoryError(f"Failed to delete transaction: {e}") from e
 
-    def get_by_category(self, category: str) -> list[Transaction]:
+    def get_by_category(self, category: str) -> "list[Transaction]":
         """Get all transactions for a specific category."""
         return self.list(category=category)
 
@@ -282,7 +284,7 @@ class SQLiteTransactionRepository(TransactionRepository):
             logger.error(f"Error while calculating total: {e}")
             raise RepositoryError(f"Failed to calculate total: {e}") from e
 
-    def search(self, query: str) -> list[Transaction]:
+    def search(self, query: str) -> "list[Transaction]":
         """Search transactions by description."""
         try:
             with sqlite3.connect(self.db_path) as conn:

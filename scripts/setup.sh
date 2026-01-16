@@ -10,21 +10,39 @@ echo ""
 
 # Check Python version
 echo "Checking Python version..."
-python_version=$(python3 --version 2>&1 | awk '{print $2}')
-required_version="3.14"
 
-if [ "$(printf '%s\n' "$required_version" "$python_version" | sort -V | head -n1)" != "$required_version" ]; then
-    echo "❌ Error: Python 3.14+ required. Found: $python_version"
-    echo "Please install Python 3.14 or higher."
-    exit 1
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  echo "❌ Error: '$PYTHON_BIN' not found on PATH."
+  echo "Tip: install Python 3.12 or 3.13, or set PYTHON_BIN (e.g. PYTHON_BIN=python3.13)."
+  exit 1
 fi
-echo "✓ Python version: $python_version"
+
+python_version=$($PYTHON_BIN --version 2>&1 | awk '{print $2}')
+required_min="3.12"
+required_max_exclusive="3.14"
+
+# Require: >= 3.12 and < 3.14
+if [ "$(printf '%s\n' "$required_min" "$python_version" | sort -V | head -n1)" != "$required_min" ]; then
+  echo "❌ Error: Python $required_min+ required. Found: $python_version"
+  echo "Please install Python $required_min or $required_min.x (recommended: 3.12 or 3.13)."
+  exit 1
+fi
+
+if [ "$(printf '%s\n' "$python_version" "$required_max_exclusive" | sort -V | head -n1)" = "$required_max_exclusive" ]; then
+  echo "❌ Error: Python $python_version is too new for some native dependencies (requires < $required_max_exclusive)."
+  echo "Please use Python 3.12 or 3.13 (e.g. via Homebrew: python@3.13 or python@3.12)."
+  echo "You can also set PYTHON_BIN=python3.13 before running this script."
+  exit 1
+fi
+
+echo "✓ Python version: $python_version ($PYTHON_BIN)"
 echo ""
 
 # Create virtual environment
 echo "Creating virtual environment..."
 if [ ! -d "venv" ]; then
-    python3 -m venv venv
+    "$PYTHON_BIN" -m venv venv
     echo "✓ Virtual environment created"
 else
     echo "✓ Virtual environment already exists"

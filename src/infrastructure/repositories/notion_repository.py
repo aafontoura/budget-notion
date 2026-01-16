@@ -1,5 +1,7 @@
 """Notion implementation of TransactionRepository."""
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from decimal import Decimal
@@ -218,7 +220,7 @@ class NotionTransactionRepository(TransactionRepository):
             logger.error(f"Notion API error while deleting transaction: {e}")
             raise RepositoryError(f"Failed to delete transaction: {e}") from e
 
-    def get_by_category(self, category: str) -> list[Transaction]:
+    def get_by_category(self, category: str) -> "list[Transaction]":
         """Get all transactions for a specific category."""
         return self.list(category=category)
 
@@ -238,7 +240,7 @@ class NotionTransactionRepository(TransactionRepository):
         total = sum((t.amount for t in transactions), Decimal("0"))
         return total
 
-    def search(self, query: str) -> list[Transaction]:
+    def search(self, query: str) -> "list[Transaction]":
         """Search transactions by description."""
         try:
             response = self.client.databases.query(

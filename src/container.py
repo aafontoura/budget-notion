@@ -29,7 +29,7 @@ class Container(containers.DeclarativeContainer):
     # Notion Client (only if using Notion repository)
     notion_client = providers.Singleton(
         Client,
-        auth=config.provided.get_notion_token,
+        auth=config.provided.get_notion_token.call(),
     )
 
     # Transaction Repository (conditional based on config)
@@ -38,7 +38,7 @@ class Container(containers.DeclarativeContainer):
         notion=providers.Singleton(
             NotionTransactionRepository,
             client=notion_client,
-            database_id=config.provided.get_notion_database_id,
+            database_id=config.provided.get_notion_database_id.call(),
         ),
         sqlite=providers.Singleton(
             SQLiteTransactionRepository,

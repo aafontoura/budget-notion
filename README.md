@@ -14,7 +14,7 @@ Built with **clean architecture** to enable seamless future swaps to other UIs (
 - **SQLite Fallback**: Local-first design with SQLite for offline mode and fast queries
 - **Clean Architecture**: Repository pattern enables easy UI swapping (Notion → Web App → Obsidian)
 - **Docker Support**: Self-hosted, secure deployment with Docker Secrets
-- **Python 3.14+**: Built with the latest Python features
+- **Python 3.12-3.13**: Built with modern Python features
 - **AI-Ready**: Designed for future ML categorization integration
 
 ## Architecture
@@ -49,7 +49,7 @@ Built with **clean architecture** to enable seamless future swaps to other UIs (
 
 ### Prerequisites
 
-- Python 3.14+
+- Python 3.12 or 3.13 (3.14+ not yet supported by all dependencies)
 - Docker & Docker Compose (optional, for containerized deployment)
 - Notion account (for Notion integration)
 
@@ -65,7 +65,7 @@ cd budget-notion
 2. **Create virtual environment**
 
 ```bash
-python3.14 -m venv venv
+python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 

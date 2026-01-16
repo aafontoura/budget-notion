@@ -1,5 +1,7 @@
 """Transaction repository interface (Port in Hexagonal Architecture)."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from datetime import datetime
 from decimal import Decimal
@@ -61,7 +63,7 @@ class TransactionRepository(ABC):
         account: Optional[str] = None,
         limit: Optional[int] = None,
         offset: int = 0,
-    ) -> list[Transaction]:
+    ) -> "list[Transaction]":
         """
         List transactions with optional filtering.
 
@@ -114,7 +116,7 @@ class TransactionRepository(ABC):
         pass
 
     @abstractmethod
-    def get_by_category(self, category: str) -> list[Transaction]:
+    def get_by_category(self, category: str) -> "list[Transaction]":
         """
         Get all transactions for a specific category.
 
@@ -153,7 +155,7 @@ class TransactionRepository(ABC):
         pass
 
     @abstractmethod
-    def search(self, query: str) -> list[Transaction]:
+    def search(self, query: str) -> "list[Transaction]":
         """
         Search transactions by description.
 
