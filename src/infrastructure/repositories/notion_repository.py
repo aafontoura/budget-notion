@@ -69,6 +69,7 @@ class NotionTransactionRepository(TransactionRepository):
         try:
             # In Notion, we store the UUID in a property and use Notion page ID
             # For now, we'll search by UUID in the transaction ID property
+            # Use databases.query (notion-client 2.2.1)
             results = self.client.databases.query(
                 database_id=self.database_id,
                 filter={
@@ -142,10 +143,14 @@ class NotionTransactionRepository(TransactionRepository):
             response = self.client.databases.query(**query_params)
 
             # Map results to domain entities
-            transactions = [
-                self._notion_page_to_transaction(page)
-                for page in response["results"]
-            ]
+            transactions = []
+            for page in response["results"]:
+                try:
+                    transaction = self._notion_page_to_transaction(page)
+                    transactions.append(transaction)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid page {page.get('id', 'unknown')}: {e}")
+                    continue
 
             # Handle pagination if needed
             while response["has_more"] and (limit is None or len(transactions) < limit):
@@ -318,26 +323,92 @@ class NotionTransactionRepository(TransactionRepository):
 
     def _notion_page_to_transaction(self, page: dict) -> Transaction:
         """Map Notion page to Transaction entity."""
-        props = page["properties"]
+        if not page:
+            raise ValueError("Page is None or empty")
 
-        # Extract required properties
+        props = page.get("properties")
+        if not props:
+            raise ValueError(f"No properties found in page {page.get('id')}")
+
+        # Extract required properties with defensive checks
         description = self._extract_title(props, "Description")
-        date_str = props["Date"]["date"]["start"]
-        amount = Decimal(str(props["Amount"]["number"]))
-        category = props["Category"]["select"]["name"]
-        reviewed = props["Reviewed"]["checkbox"]
+
+        # Date property - check if Date property exists and has a value
+        if "Date" not in props:
+            raise ValueError(f"Date property missing in page {page.get('id')}")
+
+        date_field = props["Date"]
+        if date_field is None:
+            raise ValueError(f"Date property is None in page {page.get('id')}")
+
+        if not isinstance(date_field, dict):
+            raise ValueError(f"Date property is not a dict (type: {type(date_field)}) in page {page.get('id')}")
+
+        date_prop = date_field.get("date")
+        if date_prop is None:
+            raise ValueError(f"Date.date is None in page {page.get('id')}")
+
+        if not isinstance(date_prop, dict):
+            raise ValueError(f"Date.date is not a dict in page {page.get('id')}")
+
+        if "start" not in date_prop or date_prop["start"] is None:
+            raise ValueError(f"Date.date.start missing or None in page {page.get('id')}")
+
+        date_str = date_prop["start"]
+
+        # Amount property
+        if "Amount" not in props or props["Amount"] is None:
+            raise ValueError(f"Amount property missing in page {page.get('id')}")
+
+        amount_field = props["Amount"]
+        if not isinstance(amount_field, dict):
+            raise ValueError(f"Amount property is not a dict in page {page.get('id')}")
+
+        amount_value = amount_field.get("number")
+        if amount_value is None:
+            raise ValueError(f"Amount.number is None in page {page.get('id')}")
+        amount = Decimal(str(amount_value))
+
+        # Category property
+        if "Category" not in props or props["Category"] is None:
+            raise ValueError(f"Category property missing in page {page.get('id')}")
+
+        category_field = props["Category"]
+        if not isinstance(category_field, dict):
+            raise ValueError(f"Category property is not a dict in page {page.get('id')}")
+
+        category_select = category_field.get("select")
+        if not category_select or not isinstance(category_select, dict):
+            raise ValueError(f"Category.select missing or invalid in page {page.get('id')}")
+
+        category = category_select.get("name")
+        if not category:
+            raise ValueError(f"Category.select.name missing in page {page.get('id')}")
+
+        # Reviewed property
+        if "Reviewed" in props and props["Reviewed"] and isinstance(props["Reviewed"], dict):
+            reviewed = props["Reviewed"].get("checkbox", False)
+        else:
+            reviewed = False
 
         # Extract UUID from Transaction ID property
         transaction_id_str = self._extract_rich_text(props, "Transaction ID")
         transaction_id = UUID(transaction_id_str) if transaction_id_str else UUID(page["id"])
 
         # Extract optional properties
-        account = props.get("Account", {}).get("select", {}).get("name")
+        account = None
+        if "Account" in props and props["Account"] and isinstance(props["Account"], dict):
+            account_select = props["Account"].get("select")
+            if account_select and isinstance(account_select, dict):
+                account = account_select.get("name")
+
         notes = self._extract_rich_text(props, "Notes")
 
         ai_confidence = None
-        if "AI Confidence" in props and props["AI Confidence"]["number"] is not None:
-            ai_confidence = props["AI Confidence"]["number"] / 100.0
+        if "AI Confidence" in props and props["AI Confidence"] and isinstance(props["AI Confidence"], dict):
+            ai_conf_value = props["AI Confidence"].get("number")
+            if ai_conf_value is not None:
+                ai_confidence = ai_conf_value / 100.0
 
         # Parse date
         date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
@@ -363,13 +434,31 @@ class NotionTransactionRepository(TransactionRepository):
     @staticmethod
     def _extract_title(props: dict, key: str) -> str:
         """Extract text from Notion title property."""
-        if key not in props or not props[key]["title"]:
+        if key not in props or props[key] is None:
             return ""
-        return props[key]["title"][0]["text"]["content"]
+
+        title_prop = props[key]
+        if not isinstance(title_prop, dict) or "title" not in title_prop:
+            return ""
+
+        title_list = title_prop["title"]
+        if not title_list or not isinstance(title_list, list) or len(title_list) == 0:
+            return ""
+
+        return title_list[0].get("text", {}).get("content", "")
 
     @staticmethod
     def _extract_rich_text(props: dict, key: str) -> Optional[str]:
         """Extract text from Notion rich_text property."""
-        if key not in props or not props[key]["rich_text"]:
+        if key not in props or props[key] is None:
             return None
-        return props[key]["rich_text"][0]["text"]["content"]
+
+        rich_text_prop = props[key]
+        if not isinstance(rich_text_prop, dict) or "rich_text" not in rich_text_prop:
+            return None
+
+        rich_text_list = rich_text_prop["rich_text"]
+        if not rich_text_list or not isinstance(rich_text_list, list) or len(rich_text_list) == 0:
+            return None
+
+        return rich_text_list[0].get("text", {}).get("content")

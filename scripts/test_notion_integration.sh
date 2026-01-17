@@ -3,9 +3,33 @@
 
 set -e
 
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Change to project root
+cd "$PROJECT_ROOT"
+
+# Check if virtual environment exists and activate it
+if [ -d "venv" ]; then
+    echo "Activating virtual environment..."
+    source venv/bin/activate
+fi
+
+# Detect Python command
+if command -v python3 >/dev/null 2>&1; then
+    PYTHON_CMD="python3"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+else
+    echo "❌ Error: Python not found"
+    exit 1
+fi
+
 echo "============================================================"
 echo "Budget Notion - Integration Test"
 echo "============================================================"
+echo "Using Python: $($PYTHON_CMD --version)"
 echo ""
 
 # Colors
@@ -37,12 +61,12 @@ test_command() {
 
 echo "1. Configuration Check"
 echo "------------------------"
-python -m src.interfaces.cli.main config-info
+$PYTHON_CMD -m src.interfaces.cli.main config-info
 echo ""
 
 echo "2. Add Transaction Test"
 echo "------------------------"
-TRANSACTION_OUTPUT=$(python -m src.interfaces.cli.main add \
+TRANSACTION_OUTPUT=$($PYTHON_CMD -m src.interfaces.cli.main add \
     --description "Integration Test Transaction" \
     --amount -25.99 \
     --category "Test" \
@@ -60,11 +84,19 @@ echo ""
 
 echo "3. List Transactions Test"
 echo "------------------------"
-LIST_OUTPUT=$(python -m src.interfaces.cli.main list-transactions --limit 5 2>&1)
+# Add timeout to prevent hanging
+if command -v timeout >/dev/null 2>&1; then
+    LIST_OUTPUT=$(timeout 30 $PYTHON_CMD -m src.interfaces.cli.main list-transactions --limit 5 2>&1 || echo "TIMEOUT")
+else
+    LIST_OUTPUT=$($PYTHON_CMD -m src.interfaces.cli.main list-transactions --limit 5 2>&1 || echo "ERROR")
+fi
 
 if echo "$LIST_OUTPUT" | grep -q "Recent Transactions"; then
     echo -e "${GREEN}✓ List transactions: PASSED${NC}"
     ((PASSED++))
+elif echo "$LIST_OUTPUT" | grep -q "TIMEOUT"; then
+    echo -e "${RED}✗ List transactions: TIMEOUT (>30s)${NC}"
+    ((FAILED++))
 else
     echo -e "${RED}✗ List transactions: FAILED${NC}"
     echo "$LIST_OUTPUT"
@@ -75,7 +107,7 @@ echo ""
 echo "4. Add Multiple Transactions"
 echo "------------------------"
 for i in {1..3}; do
-    python -m src.interfaces.cli.main add \
+    $PYTHON_CMD -m src.interfaces.cli.main add \
         --description "Test Transaction $i" \
         --amount -$((RANDOM % 100)).99 \
         --category "Test" \
@@ -86,7 +118,7 @@ echo ""
 
 echo "5. Filter by Category Test"
 echo "------------------------"
-FILTER_OUTPUT=$(python -m src.interfaces.cli.main list-transactions --category "Test" --limit 10 2>&1)
+FILTER_OUTPUT=$($PYTHON_CMD -m src.interfaces.cli.main list-transactions --category "Test" --limit 10 2>&1)
 
 if echo "$FILTER_OUTPUT" | grep -q "Test"; then
     echo -e "${GREEN}✓ Filter by category: PASSED${NC}"

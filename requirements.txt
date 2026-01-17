@@ -1,6 +1,6 @@
 # Core dependencies
-notion-client==2.7.0
-pandas==2.2.0
+notion-client==2.2.1
+pandas==2.2.3
 click==8.1.7
 dependency-injector==4.43.0
 python-dotenv==1.0.1

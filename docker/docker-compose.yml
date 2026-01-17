@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   app:
@@ -14,12 +13,14 @@ services:
       - LOG_LEVEL=INFO
       - ENVIRONMENT=production
       - DEFAULT_CATEGORY=Uncategorized
+      # Docker Secrets file paths
+      - NOTION_TOKEN_FILE=/run/secrets/notion_token
+      - NOTION_DATABASE_ID_FILE=/run/secrets/notion_database_id
 
     # Docker Secrets (recommended for sensitive data)
     secrets:
       - notion_token
       - notion_database_id
-      - encryption_key
 
     # Volumes for persistent data
     volumes:
@@ -27,8 +28,9 @@ services:
       - ../uploads:/app/uploads
 
     # Override command for interactive CLI
-    # For one-off commands, use: docker-compose run app python -m src.interfaces.cli.main <command>
-    command: ["python", "-m", "src.interfaces.cli.main", "config-info"]
+    # For one-off commands, use: docker-compose run --rm app <command>
+    # Default command shows config info
+    command: python -m src.interfaces.cli.main config-info
 
     # Resource limits (optional, recommended for production)
     deploy:
@@ -61,8 +63,6 @@ secrets:
     file: ../secrets/notion_token.txt
   notion_database_id:
     file: ../secrets/notion_database_id.txt
-  encryption_key:
-    file: ../secrets/encryption_key.txt
 
 # Volumes configuration
 volumes:
