@@ -9,6 +9,7 @@ from typing import Optional
 from uuid import UUID
 
 from src.domain.entities import Transaction
+from src.domain.entities.transaction import ReimbursementStatus
 
 
 class TransactionRepository(ABC):
@@ -61,6 +62,8 @@ class TransactionRepository(ABC):
         end_date: Optional[datetime] = None,
         category: Optional[str] = None,
         account: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        reimbursable_status: Optional[ReimbursementStatus] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> "list[Transaction]":
@@ -72,6 +75,8 @@ class TransactionRepository(ABC):
             end_date: Filter transactions on or before this date.
             category: Filter by category name.
             account: Filter by account name.
+            tags: Filter by tags (match any).
+            reimbursable_status: Filter by reimbursement status.
             limit: Maximum number of transactions to return.
             offset: Number of transactions to skip (for pagination).
 
@@ -167,6 +172,58 @@ class TransactionRepository(ABC):
 
         Raises:
             RepositoryError: If search fails.
+        """
+        pass
+
+    @abstractmethod
+    def get_by_tag(self, tag: str) -> "list[Transaction]":
+        """
+        Get all transactions with a specific tag.
+
+        Args:
+            tag: Tag name (case-insensitive).
+
+        Returns:
+            List of transactions with the tag.
+
+        Raises:
+            RepositoryError: If retrieval fails.
+        """
+        pass
+
+    @abstractmethod
+    def get_pending_reimbursements(self) -> "list[Transaction]":
+        """
+        Get all transactions with pending or partial reimbursements.
+
+        Returns:
+            List of transactions awaiting reimbursement.
+
+        Raises:
+            RepositoryError: If retrieval fails.
+        """
+        pass
+
+    @abstractmethod
+    def get_total_by_tag(
+        self,
+        tag: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Decimal:
+        """
+        Calculate total spending/income for transactions with a specific tag.
+
+        Args:
+            tag: Tag name.
+            start_date: Filter transactions on or after this date.
+            end_date: Filter transactions on or before this date.
+
+        Returns:
+            Total amount (positive for income, negative for expenses).
+
+        Raises:
+            RepositoryError: If calculation fails.
         """
         pass
 

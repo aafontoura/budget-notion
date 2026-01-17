@@ -12,6 +12,7 @@ from notion_client import Client
 from notion_client.errors import APIResponseError
 
 from src.domain.entities import Transaction
+from src.domain.entities.transaction import ReimbursementStatus
 from src.domain.repositories import (
     DuplicateTransactionError,
     RepositoryError,
@@ -95,6 +96,8 @@ class NotionTransactionRepository(TransactionRepository):
         end_date: Optional[datetime] = None,
         category: Optional[str] = None,
         account: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        reimbursable_status: Optional[ReimbursementStatus] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> list[Transaction]:
@@ -126,6 +129,15 @@ class NotionTransactionRepository(TransactionRepository):
                     "property": "Account",
                     "select": {"equals": account}
                 })
+
+            if reimbursable_status:
+                filters.append({
+                    "property": "Reimbursement Status",
+                    "select": {"equals": reimbursable_status.value}
+                })
+
+            # Note: Tags filtering will be done in-memory after fetching
+            # because Notion's multi-select filtering is limited
 
             # Construct query
             query_params: dict = {"database_id": self.database_id}
@@ -162,6 +174,13 @@ class NotionTransactionRepository(TransactionRepository):
                     self._notion_page_to_transaction(page)
                     for page in response["results"]
                 ])
+
+            # Apply in-memory tag filtering if specified
+            if tags:
+                transactions = [
+                    t for t in transactions
+                    if any(t.has_tag(tag) for tag in tags)
+                ]
 
             # Apply offset and limit
             if offset:
@@ -319,6 +338,30 @@ class NotionTransactionRepository(TransactionRepository):
                 "number": round(transaction.ai_confidence * 100, 2)
             }
 
+        # Add tags (multi-select)
+        if transaction.tags:
+            properties["Tags"] = {
+                "multi_select": [{"name": tag} for tag in transaction.tags]
+            }
+
+        # Add reimbursement fields
+        if transaction.reimbursable:
+            properties["Reimbursable"] = {"checkbox": True}
+
+            if transaction.expected_reimbursement > 0:
+                properties["Expected Reimbursement"] = {
+                    "number": float(transaction.expected_reimbursement)
+                }
+
+            if transaction.actual_reimbursement > 0:
+                properties["Actual Reimbursement"] = {
+                    "number": float(transaction.actual_reimbursement)
+                }
+
+            properties["Reimbursement Status"] = {
+                "select": {"name": transaction.reimbursement_status.value}
+            }
+
         return properties
 
     def _notion_page_to_transaction(self, page: dict) -> Transaction:
@@ -417,6 +460,41 @@ class NotionTransactionRepository(TransactionRepository):
         created_at = datetime.fromisoformat(page["created_time"].replace("Z", "+00:00"))
         updated_at = datetime.fromisoformat(page["last_edited_time"].replace("Z", "+00:00"))
 
+        # Extract tags (multi-select)
+        tags = []
+        if "Tags" in props and props["Tags"] and isinstance(props["Tags"], dict):
+            multi_select = props["Tags"].get("multi_select")
+            if multi_select and isinstance(multi_select, list):
+                tags = [item.get("name", "") for item in multi_select if isinstance(item, dict) and item.get("name")]
+
+        # Extract reimbursement fields
+        reimbursable = False
+        if "Reimbursable" in props and props["Reimbursable"] and isinstance(props["Reimbursable"], dict):
+            reimbursable = props["Reimbursable"].get("checkbox", False)
+
+        expected_reimbursement = Decimal("0")
+        if "Expected Reimbursement" in props and props["Expected Reimbursement"] and isinstance(props["Expected Reimbursement"], dict):
+            exp_reimb_value = props["Expected Reimbursement"].get("number")
+            if exp_reimb_value is not None:
+                expected_reimbursement = Decimal(str(exp_reimb_value))
+
+        actual_reimbursement = Decimal("0")
+        if "Actual Reimbursement" in props and props["Actual Reimbursement"] and isinstance(props["Actual Reimbursement"], dict):
+            act_reimb_value = props["Actual Reimbursement"].get("number")
+            if act_reimb_value is not None:
+                actual_reimbursement = Decimal(str(act_reimb_value))
+
+        reimbursement_status = ReimbursementStatus.NONE
+        if "Reimbursement Status" in props and props["Reimbursement Status"] and isinstance(props["Reimbursement Status"], dict):
+            status_select = props["Reimbursement Status"].get("select")
+            if status_select and isinstance(status_select, dict):
+                status_name = status_select.get("name")
+                if status_name:
+                    try:
+                        reimbursement_status = ReimbursementStatus(status_name.lower())
+                    except ValueError:
+                        pass  # Keep default if invalid status
+
         return Transaction(
             id=transaction_id,
             date=date,
@@ -427,6 +505,11 @@ class NotionTransactionRepository(TransactionRepository):
             notes=notes,
             reviewed=reviewed,
             ai_confidence=ai_confidence,
+            tags=tags,
+            reimbursable=reimbursable,
+            expected_reimbursement=expected_reimbursement,
+            actual_reimbursement=actual_reimbursement,
+            reimbursement_status=reimbursement_status,
             created_at=created_at,
             updated_at=updated_at,
         )
@@ -462,3 +545,30 @@ class NotionTransactionRepository(TransactionRepository):
             return None
 
         return rich_text_list[0].get("text", {}).get("content")
+
+    def get_by_tag(self, tag: str) -> list[Transaction]:
+        """Get all transactions with a specific tag."""
+        return self.list(tags=[tag])
+
+    def get_pending_reimbursements(self) -> list[Transaction]:
+        """Get all transactions with pending or partial reimbursements."""
+        # Get all reimbursable transactions
+        all_reimbursable = self.list(reimbursable_status=ReimbursementStatus.PENDING)
+        partial_reimbursable = self.list(reimbursable_status=ReimbursementStatus.PARTIAL)
+        return all_reimbursable + partial_reimbursable
+
+    def get_total_by_tag(
+        self,
+        tag: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Decimal:
+        """Calculate total spending/income for transactions with a specific tag."""
+        transactions = self.list(
+            tags=[tag],
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        total = sum((t.amount for t in transactions), Decimal("0"))
+        return total
