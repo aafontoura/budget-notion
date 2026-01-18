@@ -60,6 +60,7 @@ class CreateTransactionUseCase:
             description=dto.description,
             amount=dto.amount,
             category=dto.category,
+            subcategory=dto.subcategory,
             account=dto.account,
             notes=dto.notes,
             tags=dto.tags.copy() if dto.tags else [],
@@ -82,7 +83,7 @@ class CreateTransactionUseCase:
         logger.info(
             f"Created transaction: {saved_transaction.id} | "
             f"{saved_transaction.description} | ${saved_transaction.amount} | "
-            f"Tags: {saved_transaction.tags}"
+            f"Tags: {saved_transaction.tags} |" f"Category: {saved_transaction.category} | Subcategory: {saved_transaction.subcategory or ''}"
         )
 
         return saved_transaction

@@ -83,12 +83,14 @@ class ImportCSVUseCase:
                     description=transaction.description,
                     amount=transaction.amount,
                     category=transaction.category,
+                    subcategory=transaction.subcategory,
+                    ai_confidence=transaction.ai_confidence,
                     account=transaction.account,
                     notes=transaction.notes,
                 )
 
                 # Create transaction
-                saved_transaction = self.create_transaction_use_case.execute(transaction_dto)
+                saved_transaction = self.create_transaction_use_case.execute(transaction_dto, transaction_dto.ai_confidence)
                 imported_transactions.append(saved_transaction)
 
             except Exception as e:

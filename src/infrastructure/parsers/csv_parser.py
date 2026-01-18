@@ -199,6 +199,30 @@ class CSVParser:
         amount_value = row[self.config.amount_column]
         if pd.isna(amount_value):
             return None
+        
+        # Extract account (from CSV or use override)
+        account = None
+        if "Account" in row.index and not pd.isna(row["Account"]):
+            account = str(row["Account"]).strip()
+        
+        # Extract category from CSV if available
+        category = default_category
+        if "Category" in row.index and not pd.isna(row["Category"]):
+            category = str(row["Category"]).strip()
+
+        #extract subcategory from CSV if available
+        subcategory = None
+        if "Subcategory" in row.index and not pd.isna(row["Subcategory"]):
+            subcategory = str(row["Subcategory"]).strip()
+            logger.info(f"Extracted subcategory: {subcategory}")
+
+        # Extract AI confidence if available
+        ai_confidence = None
+        if "AI Confidence" in row.index and not pd.isna(row["AI Confidence"]):
+            try:
+                ai_confidence = float(row["AI Confidence"])
+            except (ValueError, TypeError):
+                ai_confidence = None
 
         try:
             # Handle string amounts with currency symbols
@@ -220,18 +244,20 @@ class CSVParser:
             return None
 
         # Extract account (from CSV or use override)
-        account = account_name
-        if not account and self.config.account_column:
-            account_value = row.get(self.config.account_column)
-            if not pd.isna(account_value):
-                account = str(account_value)
+        # account = account_name
+        # if not account and self.config.account_column:
+        #     account_value = row.get(self.config.account_column)
+        #     if not pd.isna(account_value):
+        #         account = str(account_value)
 
         # Create transaction
         return Transaction(
             date=date,
             description=description.strip(),
             amount=amount,
-            category=default_category,
+            category=category,
+            subcategory=subcategory,
+            ai_confidence=ai_confidence,
             account=account,
         )
 

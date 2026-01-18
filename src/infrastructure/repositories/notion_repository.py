@@ -67,6 +67,42 @@ class NotionTransactionRepository(TransactionRepository):
         """
         self.client = client
         self.database_id = database_id
+        self._data_source_id: Optional[str] = None  # Cached data source ID
+
+    def _get_data_source_id(self) -> str:
+        """
+        Get the data source ID for querying the database.
+
+        In Notion API 2025-09-03+, databases have separate data source IDs.
+        This method retrieves and caches the first data source ID from the database.
+
+        Returns:
+            The data source ID to use for queries.
+
+        Raises:
+            RepositoryError: If data source ID cannot be retrieved.
+        """
+        if self._data_source_id is not None:
+            return self._data_source_id
+
+        try:
+            # Retrieve database to get data source IDs
+            db_info = self.client.databases.retrieve(database_id=self.database_id)  # type: ignore[misc]
+            data_sources = db_info.get("data_sources", [])  # type: ignore[union-attr]
+
+            if not data_sources or len(data_sources) == 0:
+                raise RepositoryError(
+                    f"No data sources found for database {self.database_id}"
+                )
+
+            # Use the first data source
+            self._data_source_id = str(data_sources[0]["id"])  # type: ignore[index]
+            logger.info(f"Retrieved data source ID: {self._data_source_id}")
+            return self._data_source_id
+
+        except APIResponseError as e:
+            logger.error(f"Failed to retrieve data source ID: {e}")
+            raise RepositoryError(f"Failed to get data source ID: {e}") from e
 
     @notion_retry
     def add(self, transaction: Transaction) -> Transaction:
@@ -100,8 +136,9 @@ class NotionTransactionRepository(TransactionRepository):
             # For now, we'll search by UUID in the transaction ID property
             # Use data_sources.query (Notion API version 2025-09-03+)
             # Note: Type checker shows Awaitable but Client returns sync results
+            data_source_id = self._get_data_source_id()
             results = self.client.data_sources.query(  # type: ignore[misc]
-                data_source_id=self.database_id,
+                data_source_id=data_source_id,
                 filter={
                     "property": "Transaction ID",
                     "rich_text": {"equals": str(transaction_id)}
@@ -170,7 +207,8 @@ class NotionTransactionRepository(TransactionRepository):
             # because Notion's multi-select filtering is limited
 
             # Construct query
-            query_params: dict = {"data_source_id": self.database_id}
+            data_source_id = self._get_data_source_id()
+            query_params: dict = {"data_source_id": data_source_id}
 
             if filters:
                 if len(filters) == 1:
@@ -301,8 +339,9 @@ class NotionTransactionRepository(TransactionRepository):
         """Search transactions by description."""
         try:
             # Note: Type checker shows Awaitable but Client returns sync results
+            data_source_id = self._get_data_source_id()
             response = self.client.data_sources.query(  # type: ignore[misc]
-                data_source_id=self.database_id,
+                data_source_id=data_source_id,
                 filter={
                     "property": "Description",
                     "title": {"contains": query}
@@ -326,8 +365,9 @@ class NotionTransactionRepository(TransactionRepository):
     def _get_notion_page_by_uuid(self, transaction_id: UUID) -> Optional[dict]:
         """Get Notion page by transaction UUID."""
         # Note: Type checker shows Awaitable but Client returns sync results
+        data_source_id = self._get_data_source_id()
         results = self.client.data_sources.query(  # type: ignore[misc]
-            data_source_id=self.database_id,
+            data_source_id=data_source_id,
             filter={
                 "property": "Transaction ID",
                 "rich_text": {"equals": str(transaction_id)}
@@ -350,6 +390,12 @@ class NotionTransactionRepository(TransactionRepository):
             },
             "Category": {
                 "select": {"name": transaction.category}
+            },
+            "Subcategory": {
+                "select": {"name": transaction.subcategory} if transaction.subcategory else None
+            },
+            "AI Confidence": {
+                "number": round(transaction.ai_confidence * 100, 2) if transaction.ai_confidence is not None else None
             },
             "Reviewed": {
                 "checkbox": transaction.reviewed

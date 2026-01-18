@@ -30,6 +30,7 @@ class Transaction:
     description: str
     amount: Decimal
     category: str
+    subcategory: Optional[str] = None
     account: Optional[str] = None
     notes: Optional[str] = None
     reviewed: bool = False
@@ -86,7 +87,7 @@ class Transaction:
         """
         return self._copy_with(reviewed=True)
 
-    def update_category(self, new_category: str, confidence: Optional[float] = None) -> "Transaction":
+    def update_category(self, new_category: str, new_subcategory: str = "", confidence: Optional[float] = None) -> "Transaction":
         """
         Update transaction category.
 
@@ -95,7 +96,7 @@ class Transaction:
         if not new_category or not new_category.strip():
             raise ValueError("Category cannot be empty")
 
-        return self._copy_with(category=new_category, ai_confidence=confidence)
+        return self._copy_with(category=new_category, subcategory=new_subcategory, ai_confidence=confidence)
 
     def anonymize(self) -> "Transaction":
         """
@@ -260,6 +261,7 @@ class Transaction:
             description=kwargs.get('description', self.description),
             amount=kwargs.get('amount', self.amount),
             category=kwargs.get('category', self.category),
+            subcategory=kwargs.get('subcategory', self.subcategory),
             account=kwargs.get('account', self.account),
             notes=kwargs.get('notes', self.notes),
             reviewed=kwargs.get('reviewed', self.reviewed),
@@ -277,7 +279,7 @@ class Transaction:
         """Human-readable string representation."""
         return (
             f"{self.date.strftime('%Y-%m-%d')} | {self.description[:30]} | "
-            f"${self.amount:,.2f} | {self.category}"
+            f"${self.amount:,.2f} | {self.category} | {self.subcategory or ''} | {self.ai_confidence or 'N/A'} | {self.account or ''}"
         )
 
     def __repr__(self) -> str:

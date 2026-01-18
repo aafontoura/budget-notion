@@ -15,6 +15,7 @@ class CreateTransactionDTO(BaseModel):
     amount: Decimal
     category: str = Field(..., min_length=1, max_length=100)
     subcategory: Optional[str] = Field(None, max_length=100)
+    ai_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     account: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=1000)
     tags: list[str] = Field(default_factory=list)
