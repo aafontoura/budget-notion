@@ -3,7 +3,7 @@ name = "budget-notion"
 version = "0.1.0"
 description = "Personal finance aggregator with Notion integration and AI categorization"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12,<3.14"
 license = {text = "MIT"}
 authors = [
     {name = "Antonio Fontoura"}
@@ -13,7 +13,8 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Office/Business :: Financial",
 ]
 
@@ -118,11 +119,16 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-ra -q --strict-markers --cov=src --cov-report=term-missing"
+addopts = "-ra -q --strict-markers --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "notion: marks tests that require Notion credentials (deselect with '-m \"not notion\"')",
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
 [tool.coverage.run]
 source = ["src"]
