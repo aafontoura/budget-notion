@@ -10,6 +10,12 @@ from uuid import UUID
 
 from notion_client import Client
 from notion_client.errors import APIResponseError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from src.domain.entities import Transaction
 from src.domain.entities.transaction import ReimbursementStatus
@@ -21,6 +27,26 @@ from src.domain.repositories import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Retry decorator for Notion API calls with exponential backoff
+# Retries up to 5 times with exponential backoff: 1s, 2s, 4s, 8s, 16s
+def _log_retry_attempt(retry_state):  # type: ignore
+    """Log retry attempts for Notion API calls."""
+    if retry_state.outcome and retry_state.outcome.failed:
+        exc = retry_state.outcome.exception()
+        logger.warning(
+            f"Notion API error, retrying ({retry_state.attempt_number}/5): {exc}"
+        )
+
+
+notion_retry = retry(
+    retry=retry_if_exception_type(APIResponseError),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=1, max=60),
+    reraise=True,
+    before_sleep=_log_retry_attempt,
+)
 
 
 class NotionTransactionRepository(TransactionRepository):
@@ -42,8 +68,9 @@ class NotionTransactionRepository(TransactionRepository):
         self.client = client
         self.database_id = database_id
 
+    @notion_retry
     def add(self, transaction: Transaction) -> Transaction:
-        """Add a new transaction to Notion database."""
+        """Add a new transaction to Notion database with automatic retry on rate limits."""
         try:
             # Map domain entity to Notion properties
             properties = self._transaction_to_notion_properties(transaction)
@@ -65,31 +92,34 @@ class NotionTransactionRepository(TransactionRepository):
             logger.error(f"Unexpected error while adding transaction: {e}")
             raise RepositoryError(f"Failed to add transaction: {e}") from e
 
+    @notion_retry
     def get(self, transaction_id: UUID) -> Optional[Transaction]:
-        """Retrieve a transaction by ID from Notion."""
+        """Retrieve a transaction by ID from Notion with automatic retry."""
         try:
             # In Notion, we store the UUID in a property and use Notion page ID
             # For now, we'll search by UUID in the transaction ID property
-            # Use databases.query (notion-client 2.2.1)
-            results = self.client.databases.query(
-                database_id=self.database_id,
+            # Use data_sources.query (Notion API version 2025-09-03+)
+            # Note: Type checker shows Awaitable but Client returns sync results
+            results = self.client.data_sources.query(  # type: ignore[misc]
+                data_source_id=self.database_id,
                 filter={
                     "property": "Transaction ID",
                     "rich_text": {"equals": str(transaction_id)}
                 }
             )
 
-            if not results["results"]:
+            if not results["results"]:  # type: ignore[index]
                 return None
 
             # Map Notion page to domain entity
-            page = results["results"][0]
+            page = results["results"][0]  # type: ignore[index]
             return self._notion_page_to_transaction(page)
 
         except APIResponseError as e:
             logger.error(f"Notion API error while getting transaction: {e}")
             raise RepositoryError(f"Failed to get transaction: {e}") from e
 
+    @notion_retry
     def list(
         self,
         start_date: Optional[datetime] = None,
@@ -140,7 +170,7 @@ class NotionTransactionRepository(TransactionRepository):
             # because Notion's multi-select filtering is limited
 
             # Construct query
-            query_params: dict = {"database_id": self.database_id}
+            query_params: dict = {"data_source_id": self.database_id}
 
             if filters:
                 if len(filters) == 1:
@@ -151,12 +181,13 @@ class NotionTransactionRepository(TransactionRepository):
             if limit:
                 query_params["page_size"] = min(limit, 100)  # Notion max is 100
 
-            # Query Notion database
-            response = self.client.databases.query(**query_params)
+            # Query Notion data source (API version 2025-09-03+)
+            # Note: Type checker shows Awaitable but Client returns sync results
+            response = self.client.data_sources.query(**query_params)  # type: ignore[misc]
 
             # Map results to domain entities
             transactions = []
-            for page in response["results"]:
+            for page in response["results"]:  # type: ignore[index]
                 try:
                     transaction = self._notion_page_to_transaction(page)
                     transactions.append(transaction)
@@ -165,14 +196,14 @@ class NotionTransactionRepository(TransactionRepository):
                     continue
 
             # Handle pagination if needed
-            while response["has_more"] and (limit is None or len(transactions) < limit):
-                response = self.client.databases.query(
+            while response["has_more"] and (limit is None or len(transactions) < limit):  # type: ignore[index]
+                response = self.client.data_sources.query(  # type: ignore[misc]
                     **query_params,
-                    start_cursor=response["next_cursor"]
+                    start_cursor=response["next_cursor"]  # type: ignore[index]
                 )
                 transactions.extend([
                     self._notion_page_to_transaction(page)
-                    for page in response["results"]
+                    for page in response["results"]  # type: ignore[index]
                 ])
 
             # Apply in-memory tag filtering if specified
@@ -195,8 +226,9 @@ class NotionTransactionRepository(TransactionRepository):
             logger.error(f"Notion API error while listing transactions: {e}")
             raise RepositoryError(f"Failed to list transactions: {e}") from e
 
+    @notion_retry
     def update(self, transaction: Transaction) -> Transaction:
-        """Update an existing transaction in Notion."""
+        """Update an existing transaction in Notion with automatic retry."""
         try:
             # Find the Notion page ID for this transaction
             page = self._get_notion_page_by_uuid(transaction.id)
@@ -222,8 +254,9 @@ class NotionTransactionRepository(TransactionRepository):
             logger.error(f"Notion API error while updating transaction: {e}")
             raise RepositoryError(f"Failed to update transaction: {e}") from e
 
+    @notion_retry
     def delete(self, transaction_id: UUID) -> bool:
-        """Delete a transaction from Notion (archives it)."""
+        """Delete a transaction from Notion (archives it) with automatic retry."""
         try:
             # Find the Notion page ID for this transaction
             page = self._get_notion_page_by_uuid(transaction_id)
@@ -267,8 +300,9 @@ class NotionTransactionRepository(TransactionRepository):
     def search(self, query: str) -> "list[Transaction]":
         """Search transactions by description."""
         try:
-            response = self.client.databases.query(
-                database_id=self.database_id,
+            # Note: Type checker shows Awaitable but Client returns sync results
+            response = self.client.data_sources.query(  # type: ignore[misc]
+                data_source_id=self.database_id,
                 filter={
                     "property": "Description",
                     "title": {"contains": query}
@@ -277,7 +311,7 @@ class NotionTransactionRepository(TransactionRepository):
 
             transactions = [
                 self._notion_page_to_transaction(page)
-                for page in response["results"]
+                for page in response["results"]  # type: ignore[index]
             ]
 
             logger.info(f"Found {len(transactions)} transactions matching '{query}'")
@@ -291,15 +325,16 @@ class NotionTransactionRepository(TransactionRepository):
 
     def _get_notion_page_by_uuid(self, transaction_id: UUID) -> Optional[dict]:
         """Get Notion page by transaction UUID."""
-        results = self.client.databases.query(
-            database_id=self.database_id,
+        # Note: Type checker shows Awaitable but Client returns sync results
+        results = self.client.data_sources.query(  # type: ignore[misc]
+            data_source_id=self.database_id,
             filter={
                 "property": "Transaction ID",
                 "rich_text": {"equals": str(transaction_id)}
             }
         )
 
-        return results["results"][0] if results["results"] else None
+        return results["results"][0] if results["results"] else None  # type: ignore[index,return-value]
 
     def _transaction_to_notion_properties(self, transaction: Transaction) -> dict:
         """Map Transaction entity to Notion properties format."""

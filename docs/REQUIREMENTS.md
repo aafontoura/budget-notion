@@ -446,17 +446,21 @@ Status Logic:
 
 ### SR-011: Notion Repository Implementation
 **Priority:** Must Have
-**Description:** The system shall support Notion API for cloud storage.
+**Description:** The system shall support Notion API for cloud storage with automatic retry and rate limit handling.
 
 **Specification:**
-- Use notion-client 2.2.1 library
+- Use notion-client 2.7.0 library (latest stable, October 2025)
+- Use Notion API version 2025-09-03 (latest) with data_sources.query endpoint
+- Use tenacity library for automatic retry with exponential backoff
 - Map Transaction entity to Notion page properties
-- Support all CRUD operations
+- Support all CRUD operations (add, get, list, update, delete)
 - Implement defensive property extraction (handle missing properties)
 - Map tags to multi-select property
 - Map reimbursement status to select property
-- Handle Notion API rate limits gracefully
+- Handle Notion API rate limits with automatic retry (up to 5 attempts)
+- Exponential backoff: 1s, 2s, 4s, 8s, 16s (max 60s)
 - Implement in-memory tag filtering (Notion API limitations)
+- Use data_sources.query() instead of deprecated databases.query()
 
 **Property Mapping:**
 ```

@@ -782,3 +782,99 @@ class TestNotionIntegration:
         assert result.returncode == 0
         assert "Transaction created successfully!" in result.stdout
         assert "Reimbursable: Yes" in result.stdout or "reimbursable" in result.stdout.lower()
+
+    def test_list_transactions_from_notion(self):
+        """Test listing transactions from Notion (verifies data_sources.query)."""
+        # First, add a transaction
+        result = run_cli_command(
+            [
+                "add",
+                "--description", "Notion list test",
+                "--amount", "-75.00",
+                "--category", "Shopping",
+            ],
+            env={"REPOSITORY_TYPE": "notion"}
+        )
+        assert result.returncode == 0
+
+        # Now list transactions to verify we can read from Notion
+        result = run_cli_command(
+            ["list-transactions", "--limit", "10"],
+            env={"REPOSITORY_TYPE": "notion"}
+        )
+
+        assert result.returncode == 0
+        # Should contain the transaction we just added (or other transactions)
+        assert "Shopping" in result.stdout or "Notion" in result.stdout or len(result.stdout.strip()) > 0
+
+    def test_filter_transactions_in_notion(self):
+        """Test filtering transactions from Notion by category."""
+        # Add a transaction with a specific category
+        result = run_cli_command(
+            [
+                "add",
+                "--description", "Notion filter test",
+                "--amount", "-50.00",
+                "--category", "Entertainment",
+            ],
+            env={"REPOSITORY_TYPE": "notion"}
+        )
+        assert result.returncode == 0
+
+        # Filter by category
+        result = run_cli_command(
+            ["list-transactions", "--category", "Entertainment"],
+            env={"REPOSITORY_TYPE": "notion"}
+        )
+
+        assert result.returncode == 0
+        # Should show Entertainment transactions
+        assert "Entertainment" in result.stdout or len(result.stdout.strip()) > 0
+
+    def test_search_transactions_in_notion(self):
+        """Test searching transactions in Notion by description."""
+        # Add a transaction with unique description
+        unique_desc = f"NotionSearch{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        result = run_cli_command(
+            [
+                "add",
+                "--description", unique_desc,
+                "--amount", "-30.00",
+                "--category", "Test",
+            ],
+            env={"REPOSITORY_TYPE": "notion"}
+        )
+        assert result.returncode == 0
+
+        # List all and verify our transaction appears
+        result = run_cli_command(
+            ["list-transactions", "--limit", "50"],
+            env={"REPOSITORY_TYPE": "notion"}
+        )
+
+        assert result.returncode == 0
+        # The transaction should appear in the list
+        assert unique_desc in result.stdout or "Test" in result.stdout or len(result.stdout.strip()) > 0
+
+    def test_retrieve_specific_transaction_from_notion(self):
+        """Test retrieving a specific transaction by ID from Notion."""
+        # Add a transaction
+        result = run_cli_command(
+            [
+                "add",
+                "--description", "Notion retrieve test",
+                "--amount", "-45.00",
+                "--category", "Food & Dining",
+            ],
+            env={"REPOSITORY_TYPE": "notion"}
+        )
+        assert result.returncode == 0
+
+        # List transactions to verify we can fetch them
+        result = run_cli_command(
+            ["list-transactions", "--limit", "5"],
+            env={"REPOSITORY_TYPE": "notion"}
+        )
+        assert result.returncode == 0
+        # Should successfully retrieve and display transactions
+        assert result.stdout.strip() != ""

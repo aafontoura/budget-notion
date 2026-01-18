@@ -1,5 +1,5 @@
 # Core dependencies
-notion-client==2.2.1
+notion-client==2.7.0
 pandas==2.2.3
 click==8.1.7
 dependency-injector==4.43.0
@@ -8,6 +8,7 @@ pydantic==2.9.0
 pydantic-settings==2.6.1
 sqlalchemy==2.0.36
 openpyxl==3.1.2
+tenacity==9.0.0  # Retry logic with exponential backoff
 
 # Development dependencies
 pytest==8.3.4
