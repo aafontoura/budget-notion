@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from datetime import datetime
@@ -11,6 +12,7 @@ from typing import Optional
 from uuid import UUID
 
 from src.domain.entities import Transaction
+from src.domain.entities.transaction import ReimbursementStatus
 from src.domain.repositories import (
     RepositoryError,
     TransactionNotFoundError,
@@ -55,6 +57,11 @@ class SQLiteTransactionRepository(TransactionRepository):
                     notes TEXT,
                     reviewed INTEGER NOT NULL DEFAULT 0,
                     ai_confidence REAL,
+                    tags TEXT DEFAULT '[]',
+                    reimbursable INTEGER NOT NULL DEFAULT 0,
+                    expected_reimbursement REAL DEFAULT 0.0,
+                    actual_reimbursement REAL DEFAULT 0.0,
+                    reimbursement_status TEXT DEFAULT 'none',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
@@ -70,9 +77,51 @@ class SQLiteTransactionRepository(TransactionRepository):
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_account ON transactions(account)
             """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_reimbursement_status ON transactions(reimbursement_status)
+            """)
 
             conn.commit()
+
+            # Run migrations for existing databases
+            self._migrate_database(conn)
+
             logger.info(f"Initialized SQLite database at {self.db_path}")
+
+    def _migrate_database(self, conn: sqlite3.Connection) -> None:
+        """Add new columns to existing databases if they don't exist."""
+        try:
+            # Check if tags column exists
+            cursor = conn.execute("PRAGMA table_info(transactions)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+            migrations_needed = []
+
+            if 'tags' not in columns:
+                migrations_needed.append("ALTER TABLE transactions ADD COLUMN tags TEXT DEFAULT '[]'")
+            if 'reimbursable' not in columns:
+                migrations_needed.append("ALTER TABLE transactions ADD COLUMN reimbursable INTEGER NOT NULL DEFAULT 0")
+            if 'expected_reimbursement' not in columns:
+                migrations_needed.append("ALTER TABLE transactions ADD COLUMN expected_reimbursement REAL DEFAULT 0.0")
+            if 'actual_reimbursement' not in columns:
+                migrations_needed.append("ALTER TABLE transactions ADD COLUMN actual_reimbursement REAL DEFAULT 0.0")
+            if 'reimbursement_status' not in columns:
+                migrations_needed.append("ALTER TABLE transactions ADD COLUMN reimbursement_status TEXT DEFAULT 'none'")
+
+            for migration in migrations_needed:
+                conn.execute(migration)
+                logger.info(f"Ran migration: {migration}")
+
+            if migrations_needed:
+                # Create index for reimbursement status
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_reimbursement_status ON transactions(reimbursement_status)
+                """)
+                conn.commit()
+                logger.info(f"Applied {len(migrations_needed)} database migrations")
+        except Exception as e:
+            logger.error(f"Error during migration: {e}")
+            raise
 
     def add(self, transaction: Transaction) -> Transaction:
         """Add a new transaction to SQLite database."""
@@ -82,8 +131,10 @@ class SQLiteTransactionRepository(TransactionRepository):
                     INSERT INTO transactions (
                         id, date, description, amount, category,
                         account, notes, reviewed, ai_confidence,
+                        tags, reimbursable, expected_reimbursement,
+                        actual_reimbursement, reimbursement_status,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     str(transaction.id),
                     transaction.date.isoformat(),
@@ -94,6 +145,11 @@ class SQLiteTransactionRepository(TransactionRepository):
                     transaction.notes,
                     1 if transaction.reviewed else 0,
                     transaction.ai_confidence,
+                    json.dumps(transaction.tags),
+                    1 if transaction.reimbursable else 0,
+                    float(transaction.expected_reimbursement),
+                    float(transaction.actual_reimbursement),
+                    transaction.reimbursement_status.value,
                     transaction.created_at.isoformat(),
                     transaction.updated_at.isoformat(),
                 ))
@@ -135,6 +191,8 @@ class SQLiteTransactionRepository(TransactionRepository):
         end_date: Optional[datetime] = None,
         category: Optional[str] = None,
         account: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        reimbursable_status: Optional[ReimbursementStatus] = None,
         limit: Optional[int] = None,
         offset: int = 0,
     ) -> "list[Transaction]":
@@ -160,6 +218,10 @@ class SQLiteTransactionRepository(TransactionRepository):
                 query += " AND account = ?"
                 params.append(account)
 
+            if reimbursable_status:
+                query += " AND reimbursement_status = ?"
+                params.append(reimbursable_status.value)
+
             # Order by date descending
             query += " ORDER BY date DESC"
 
@@ -178,6 +240,13 @@ class SQLiteTransactionRepository(TransactionRepository):
                 rows = cursor.fetchall()
 
                 transactions = [self._row_to_transaction(row) for row in rows]
+
+            # Apply tag filtering in-memory (SQLite doesn't have good JSON search)
+            if tags:
+                transactions = [
+                    t for t in transactions
+                    if any(t.has_tag(tag) for tag in tags)
+                ]
 
             logger.info(f"Retrieved {len(transactions)} transactions from SQLite")
             return transactions
@@ -200,6 +269,11 @@ class SQLiteTransactionRepository(TransactionRepository):
                         notes = ?,
                         reviewed = ?,
                         ai_confidence = ?,
+                        tags = ?,
+                        reimbursable = ?,
+                        expected_reimbursement = ?,
+                        actual_reimbursement = ?,
+                        reimbursement_status = ?,
                         updated_at = ?
                     WHERE id = ?
                 """, (
@@ -211,6 +285,11 @@ class SQLiteTransactionRepository(TransactionRepository):
                     transaction.notes,
                     1 if transaction.reviewed else 0,
                     transaction.ai_confidence,
+                    json.dumps(transaction.tags),
+                    1 if transaction.reimbursable else 0,
+                    float(transaction.expected_reimbursement),
+                    float(transaction.actual_reimbursement),
+                    transaction.reimbursement_status.value,
                     datetime.now().isoformat(),
                     str(transaction.id),
                 ))
@@ -305,6 +384,49 @@ class SQLiteTransactionRepository(TransactionRepository):
             logger.error(f"Error while searching transactions: {e}")
             raise RepositoryError(f"Failed to search transactions: {e}") from e
 
+    def get_by_tag(self, tag: str) -> "list[Transaction]":
+        """Get all transactions with a specific tag."""
+        return self.list(tags=[tag])
+
+    def get_pending_reimbursements(self) -> "list[Transaction]":
+        """Get all transactions with pending or partial reimbursements."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("""
+                    SELECT * FROM transactions
+                    WHERE reimbursement_status IN ('pending', 'partial')
+                    ORDER BY date DESC
+                """)
+
+                rows = cursor.fetchall()
+                transactions = [self._row_to_transaction(row) for row in rows]
+
+            logger.info(f"Found {len(transactions)} pending reimbursements")
+            return transactions
+
+        except Exception as e:
+            logger.error(f"Error while getting pending reimbursements: {e}")
+            raise RepositoryError(f"Failed to get pending reimbursements: {e}") from e
+
+    def get_total_by_tag(
+        self,
+        tag: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Decimal:
+        """Calculate total spending/income for transactions with a specific tag."""
+        transactions = self.get_by_tag(tag)
+
+        # Apply date filtering
+        if start_date:
+            transactions = [t for t in transactions if t.date >= start_date]
+        if end_date:
+            transactions = [t for t in transactions if t.date <= end_date]
+
+        total = sum((t.amount for t in transactions), Decimal("0"))
+        return total
+
     # Helper methods
 
     def clear_all(self) -> None:
@@ -341,6 +463,27 @@ class SQLiteTransactionRepository(TransactionRepository):
     @staticmethod
     def _row_to_transaction(row: sqlite3.Row) -> Transaction:
         """Convert SQLite row to Transaction entity."""
+        # Parse tags from JSON
+        try:
+            tags_json = row["tags"] if "tags" in row.keys() else "[]"
+            tags = json.loads(tags_json) if tags_json else []
+        except (KeyError, json.JSONDecodeError):
+            tags = []
+
+        # Parse reimbursement status
+        try:
+            status_str = row["reimbursement_status"] if "reimbursement_status" in row.keys() else "none"
+            reimbursement_status = ReimbursementStatus(status_str)
+        except (KeyError, ValueError):
+            reimbursement_status = ReimbursementStatus.NONE
+
+        # Helper to safely get values with defaults
+        def safe_get(key: str, default):
+            try:
+                return row[key] if key in row.keys() and row[key] is not None else default
+            except KeyError:
+                return default
+
         return Transaction(
             id=UUID(row["id"]),
             date=datetime.fromisoformat(row["date"]),
@@ -351,6 +494,11 @@ class SQLiteTransactionRepository(TransactionRepository):
             notes=row["notes"],
             reviewed=bool(row["reviewed"]),
             ai_confidence=row["ai_confidence"],
+            tags=tags,
+            reimbursable=bool(safe_get("reimbursable", 0)),
+            expected_reimbursement=Decimal(str(safe_get("expected_reimbursement", 0.0))),
+            actual_reimbursement=Decimal(str(safe_get("actual_reimbursement", 0.0))),
+            reimbursement_status=reimbursement_status,
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )

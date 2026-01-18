@@ -14,8 +14,12 @@ class CreateTransactionDTO(BaseModel):
     description: str = Field(..., min_length=1, max_length=500)
     amount: Decimal
     category: str = Field(..., min_length=1, max_length=100)
+    subcategory: Optional[str] = Field(None, max_length=100)
     account: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=1000)
+    tags: list[str] = Field(default_factory=list)
+    reimbursable: bool = False
+    expected_reimbursement: Decimal = Field(default=Decimal("0"))
 
     @field_validator("description")
     @classmethod
@@ -32,6 +36,14 @@ class CreateTransactionDTO(BaseModel):
         if not v.strip():
             raise ValueError("Category cannot be empty")
         return v.strip()
+
+    @field_validator("expected_reimbursement")
+    @classmethod
+    def validate_reimbursement(cls, v: Decimal) -> Decimal:
+        """Validate reimbursement amount is non-negative."""
+        if v < 0:
+            raise ValueError("Expected reimbursement cannot be negative")
+        return v
 
 
 class UpdateTransactionDTO(BaseModel):

@@ -6,7 +6,11 @@ from dependency_injector import containers, providers
 from notion_client import Client
 
 from config.settings import Settings
-from src.application.use_cases import CreateTransactionUseCase, ImportCSVUseCase
+from src.application.use_cases import (
+    CreateTransactionUseCase,
+    ImportCSVUseCase,
+    UpdateReimbursementUseCase,
+)
 from src.infrastructure.repositories import (
     NotionTransactionRepository,
     SQLiteTransactionRepository,
@@ -54,6 +58,11 @@ class Container(containers.DeclarativeContainer):
 
     import_csv_use_case = providers.Factory(
         ImportCSVUseCase,
+        repository=transaction_repository,
+    )
+
+    update_reimbursement_use_case = providers.Factory(
+        UpdateReimbursementUseCase,
         repository=transaction_repository,
     )
 

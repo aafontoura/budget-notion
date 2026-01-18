@@ -37,9 +37,24 @@ def cli():
 @click.option("--description", "-desc", required=True, help="Transaction description.")
 @click.option("--amount", "-a", required=True, type=float, help="Transaction amount.")
 @click.option("--category", "-c", required=True, help="Transaction category.")
+@click.option("--subcategory", "-s", help="Transaction subcategory (optional).")
 @click.option("--account", help="Account name (optional).")
 @click.option("--notes", "-n", help="Additional notes (optional).")
-def add(date: str, description: str, amount: float, category: str, account: str, notes: str):
+@click.option("--tags", "-t", multiple=True, help="Tags for this transaction (can be specified multiple times).")
+@click.option("--reimbursable", "-r", is_flag=True, help="Mark as reimbursable (for group expenses/Tikkie).")
+@click.option("--expected-reimbursement", "-e", type=float, help="Expected reimbursement amount.")
+def add(
+    date: str,
+    description: str,
+    amount: float,
+    category: str,
+    subcategory: str,
+    account: str,
+    notes: str,
+    tags: tuple,
+    reimbursable: bool,
+    expected_reimbursement: float
+):
     """Add a new transaction manually."""
     try:
         # Parse date
@@ -54,8 +69,12 @@ def add(date: str, description: str, amount: float, category: str, account: str,
             description=description,
             amount=Decimal(str(amount)),
             category=category,
+            subcategory=subcategory,
             account=account,
             notes=notes,
+            tags=list(tags) if tags else [],
+            reimbursable=reimbursable,
+            expected_reimbursement=Decimal(str(expected_reimbursement)) if expected_reimbursement else Decimal("0"),
         )
 
         # Execute use case
@@ -71,6 +90,11 @@ def add(date: str, description: str, amount: float, category: str, account: str,
         click.echo(f"  Category: {transaction.category}")
         if transaction.account:
             click.echo(f"  Account: {transaction.account}")
+        if transaction.tags:
+            click.echo(f"  Tags: {', '.join(transaction.tags)}")
+        if transaction.reimbursable:
+            click.echo(f"  Reimbursable: Yes (Expected: ${transaction.expected_reimbursement:,.2f})")
+            click.echo(f"  Status: {transaction.reimbursement_status.value}")
 
     except Exception as e:
         click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
@@ -124,16 +148,27 @@ def import_csv(file_path: str, category: str, account: str, bank: str):
 @click.option("--limit", "-l", default=10, type=int, help="Number of transactions to display.")
 @click.option("--category", "-c", help="Filter by category.")
 @click.option("--account", "-a", help="Filter by account.")
-def list_transactions(limit: int, category: str, account: str):
+@click.option("--tag", "-t", multiple=True, help="Filter by tag (can specify multiple).")
+@click.option("--reimbursable", "-r", is_flag=True, help="Show only reimbursable transactions.")
+def list_transactions(limit: int, category: str, account: str, tag: tuple, reimbursable: bool):
     """List recent transactions."""
     try:
+        from src.domain.entities.transaction import ReimbursementStatus
+
         # Get repository
         repository = container.transaction_repository()
+
+        # Determine reimbursement status filter
+        reimbursable_status = None
+        if reimbursable:
+            reimbursable_status = ReimbursementStatus.PENDING
 
         # List transactions
         transactions = repository.list(
             category=category,
             account=account,
+            tags=list(tag) if tag else None,
+            reimbursable_status=reimbursable_status,
             limit=limit,
         )
 
@@ -143,7 +178,7 @@ def list_transactions(limit: int, category: str, account: str):
 
         # Display transactions
         click.echo(f"\nRecent Transactions ({len(transactions)}):")
-        click.echo("-" * 100)
+        click.echo("-" * 120)
 
         for transaction in transactions:
             # Color code based on income/expense
@@ -151,16 +186,25 @@ def list_transactions(limit: int, category: str, account: str):
             amount_str = click.style(f"${abs(transaction.amount):,.2f}", fg=amount_color)
 
             # Truncate description
-            description = transaction.description[:45] + "..." if len(transaction.description) > 45 else transaction.description
+            description = transaction.description[:35] + "..." if len(transaction.description) > 35 else transaction.description
+
+            # Format tags
+            tags_str = f"[{', '.join(transaction.tags[:3])}]" if transaction.tags else ""
+
+            # Reimbursement indicator
+            reimb_indicator = ""
+            if transaction.reimbursable:
+                reimb_indicator = f" 💸 {transaction.reimbursement_status.value}"
 
             click.echo(
                 f"{transaction.date.strftime('%Y-%m-%d')} | "
-                f"{description:<48} | "
-                f"{amount_str:>10} | "
-                f"{transaction.category}"
+                f"{description:<38} | "
+                f"{amount_str:>12} | "
+                f"{transaction.category[:20]:<20} | "
+                f"{tags_str:<20}{reimb_indicator}"
             )
 
-        click.echo("-" * 100)
+        click.echo("-" * 120)
 
     except Exception as e:
         click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
@@ -214,6 +258,118 @@ def config_info():
         click.echo(f"Notion Database ID: {settings.notion_database_id[:8]}...")
 
     click.echo("-" * 50)
+
+
+@cli.command()
+def pending_reimbursements():
+    """List all pending reimbursements."""
+    try:
+        # Get repository
+        repository = container.transaction_repository()
+
+        # Get pending reimbursements
+        transactions = repository.get_pending_reimbursements()
+
+        if not transactions:
+            click.echo("No pending reimbursements found.")
+            return
+
+        # Display transactions
+        click.echo(f"\nPending Reimbursements ({len(transactions)}):")
+        click.echo("-" * 100)
+
+        total_pending = Decimal("0")
+
+        for transaction in transactions:
+            pending_amount = transaction.pending_reimbursement
+            total_pending += pending_amount
+
+            status_color = "yellow" if transaction.reimbursement_status.value == "partial" else "red"
+            status = click.style(transaction.reimbursement_status.value.upper(), fg=status_color, bold=True)
+
+            click.echo(
+                f"{transaction.date.strftime('%Y-%m-%d')} | "
+                f"{transaction.description[:40]:<40} | "
+                f"Expected: ${transaction.expected_reimbursement:>8,.2f} | "
+                f"Received: ${transaction.actual_reimbursement:>8,.2f} | "
+                f"Pending: ${pending_amount:>8,.2f} | "
+                f"{status}"
+            )
+
+        click.echo("-" * 100)
+        click.echo(f"Total Pending: ${total_pending:,.2f}")
+
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("transaction_id")
+@click.argument("amount", type=float)
+def record_reimbursement(transaction_id: str, amount: float):
+    """Record a reimbursement payment for a transaction."""
+    try:
+        from uuid import UUID
+
+        # Get use case
+        use_case = container.update_reimbursement_use_case()
+
+        # Execute
+        transaction = use_case.execute(
+            transaction_id=UUID(transaction_id),
+            actual_reimbursement=Decimal(str(amount))
+        )
+
+        # Display result
+        click.echo(click.style("✓ Reimbursement recorded successfully!", fg="green", bold=True))
+        click.echo(f"  Transaction: {transaction.description}")
+        click.echo(f"  Amount Received: ${transaction.actual_reimbursement:,.2f}")
+        click.echo(f"  Expected: ${transaction.expected_reimbursement:,.2f}")
+        click.echo(f"  Pending: ${transaction.pending_reimbursement:,.2f}")
+        click.echo(f"  Status: {transaction.reimbursement_status.value}")
+
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("tag")
+@click.option("--start-date", help="Start date (YYYY-MM-DD).")
+@click.option("--end-date", help="End date (YYYY-MM-DD).")
+def tag_total(tag: str, start_date: str, end_date: str):
+    """Calculate total spending for a specific tag."""
+    try:
+        # Parse dates
+        start = datetime.strptime(start_date, "%Y-%m-%d") if start_date else None
+        end = datetime.strptime(end_date, "%Y-%m-%d") if end_date else None
+
+        # Get repository
+        repository = container.transaction_repository()
+
+        # Get total
+        total = repository.get_total_by_tag(tag, start, end)
+
+        # Display result
+        period = ""
+        if start and end:
+            period = f" ({start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')})"
+        elif start:
+            period = f" (from {start.strftime('%Y-%m-%d')})"
+        elif end:
+            period = f" (until {end.strftime('%Y-%m-%d')})"
+
+        click.echo(f"\nTotal for tag '{tag}'{period}:")
+
+        if total < 0:
+            click.echo(click.style(f"${abs(total):,.2f} (expenses)", fg="red", bold=True))
+        else:
+            click.echo(click.style(f"${total:,.2f} (income)", fg="green", bold=True))
+
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
