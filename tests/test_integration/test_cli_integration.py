@@ -2,6 +2,73 @@
 
 These tests verify end-to-end functionality of the CLI with real repositories.
 Designed for CI/CD pipelines.
+
+Requirements Coverage:
+    - SR-002: Dependency Injection
+    - SR-003: Repository Pattern
+    - SR-006: Tag Taxonomy
+    - SR-007: Auto-Tagging Service
+    - SR-008: Reimbursement Status Calculation
+    - SR-010: SQLite Repository Implementation
+    - SR-011: Notion Repository Implementation
+    - SR-012: Database Schema Validation
+    - SR-013: CLI Command Structure
+    - SR-014: Error Handling
+    - UR-001: Manual Transaction Entry
+    - UR-003: Transaction Listing and Filtering
+    - UR-004: Auto-Tagging Based on Subcategory
+    - UR-006: Mark Transactions as Reimbursable
+    - UR-007: Record Reimbursement Payments
+    - UR-008: View Pending Reimbursements
+    - UR-009: View Statistics
+    - UR-010: Calculate Totals by Tag
+    - UR-011: View Configuration
+    - UR-012: Switch Between Repositories
+
+Test-to-Requirement Mapping:
+    TestConfigInfo:
+        test_config_info_sqlite              -> SR-003, SR-010, SR-013, UR-011
+        test_config_info_notion              -> SR-003, SR-011, SR-013, UR-011
+
+    TestAddTransaction:
+        test_add_basic_transaction           -> SR-013, UR-001
+        test_add_with_all_fields             -> SR-013, UR-001
+        test_add_reimbursable_transaction    -> SR-008, SR-013, UR-006
+        test_add_missing_required_fields     -> SR-012, SR-014, UR-001
+
+    TestListTransactions:
+        test_list_empty                      -> SR-010, SR-013, UR-003
+        test_list_with_transactions          -> SR-010, SR-013, UR-003
+        test_list_filter_by_category         -> SR-010, SR-013, UR-003
+        test_list_filter_by_tag              -> SR-010, SR-013, UR-003
+
+    TestPendingReimbursements:
+        test_pending_empty                   -> SR-010, SR-013, UR-008
+        test_pending_with_transactions       -> SR-010, SR-013, UR-008
+
+    TestRecordReimbursement:
+        test_record_full_reimbursement       -> SR-008, SR-013, UR-007
+        test_record_partial_reimbursement    -> SR-008, SR-013, UR-007
+
+    TestTagTotal:
+        test_tag_total_no_transactions       -> SR-010, SR-013, UR-010
+        test_tag_total_with_transactions     -> SR-010, SR-013, UR-010
+        test_tag_total_with_date_range       -> SR-010, SR-013, UR-010
+
+    TestStats:
+        test_stats_with_sqlite               -> SR-010, SR-013, UR-009
+
+    TestAutoTagging:
+        test_car_insurance_auto_tags         -> SR-007, SR-013, UR-004
+        test_user_tags_preserved             -> SR-007, SR-013, UR-004
+
+    TestEndToEndWorkflow:
+        test_reimbursement_workflow          -> SR-008, SR-013, UR-006, UR-007
+
+    TestNotionIntegration:
+        test_add_basic_transaction_to_notion       -> SR-011, SR-013, UR-001, UR-012
+        test_add_transaction_with_tags_to_notion   -> SR-006, SR-007, SR-011, SR-013, UR-004, UR-012
+        test_add_reimbursable_transaction_to_notion-> SR-008, SR-011, SR-013, UR-006, UR-012
 """
 
 import os

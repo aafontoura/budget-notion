@@ -1,4 +1,26 @@
-"""Tests for AutoTaggerService."""
+"""Tests for AutoTaggerService.
+
+This module tests the auto-tagging service which applies tags based on subcategory.
+
+Requirements Coverage:
+    - SR-006: Tag Taxonomy
+    - SR-007: Auto-Tagging Service
+    - UR-004: Auto-Tagging Based on Subcategory
+
+Test-to-Requirement Mapping:
+    test_auto_tag_car_expenses           -> SR-006, SR-007, UR-004
+    test_auto_tag_bike_expenses          -> SR-006, SR-007, UR-004
+    test_auto_tag_baby_expenses          -> SR-006, SR-007, UR-004
+    test_auto_tag_fixed_expenses         -> SR-006, SR-007, UR-004
+    test_auto_tag_discretionary_expenses -> SR-006, SR-007, UR-004
+    test_auto_tag_quarterly_frequency    -> SR-006, SR-007, UR-004
+    test_auto_tag_yearly_frequency       -> SR-006, SR-007, UR-004
+    test_auto_tag_multiple_dimensions    -> SR-006, SR-007, UR-004
+    test_auto_tag_preserves_existing_tags-> SR-006, SR-007, UR-004
+    test_auto_tag_no_duplicates          -> SR-006, SR-007, UR-004
+    test_auto_tag_no_subcategory         -> SR-007
+    test_auto_tag_reimbursable           -> SR-007
+"""
 
 from datetime import datetime
 from decimal import Decimal

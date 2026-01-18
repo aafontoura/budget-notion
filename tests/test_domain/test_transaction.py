@@ -1,4 +1,42 @@
-"""Tests for Transaction domain entity."""
+"""Tests for Transaction domain entity.
+
+This module tests the Transaction entity which is a core domain object.
+
+Requirements Coverage:
+    - SR-004: Transaction Entity Schema
+    - SR-005: Category Structure
+    - SR-006: Tag Taxonomy
+    - SR-008: Reimbursement Status Calculation
+    - SR-009: Immutable Transaction Pattern
+    - SR-012: Database Schema Validation
+    - SR-019: Security (anonymization)
+
+Test-to-Requirement Mapping:
+    test_transaction_creation                      -> SR-004, SR-009
+    test_transaction_with_invalid_description      -> SR-004, SR-012
+    test_transaction_with_invalid_category         -> SR-005, SR-012
+    test_transaction_is_income                     -> SR-004
+    test_transaction_needs_review                  -> SR-004
+    test_transaction_mark_as_reviewed              -> SR-004, SR-009
+    test_transaction_update_category               -> SR-005, SR-009
+    test_transaction_anonymize                     -> SR-019
+    test_transaction_with_tags                     -> SR-004, SR-006
+    test_transaction_tags_normalized_to_lowercase  -> SR-006
+    test_transaction_add_tag                       -> SR-006, SR-009
+    test_transaction_add_duplicate_tag             -> SR-006
+    test_transaction_remove_tag                    -> SR-006, SR-009
+    test_transaction_remove_nonexistent_tag        -> SR-006
+    test_transaction_has_tag                       -> SR-006
+    test_transaction_reimbursable                  -> SR-008
+    test_transaction_reimbursement_validation      -> SR-008, SR-012
+    test_transaction_auto_reimbursement_status_none-> SR-008
+    test_transaction_pending_reimbursement         -> SR-008
+    test_transaction_partial_reimbursement         -> SR-008
+    test_transaction_is_fully_reimbursed           -> SR-008
+    test_transaction_reimbursement_exceeds_amount  -> SR-008, SR-012
+    test_transaction_update_reimbursement          -> SR-008, SR-009
+    test_transaction_net_amount                    -> SR-004, SR-008
+"""
 
 from datetime import datetime
 from decimal import Decimal
@@ -9,7 +47,12 @@ from src.domain.entities import Transaction
 
 
 def test_transaction_creation():
-    """Test creating a valid transaction."""
+    """Test creating a valid transaction.
+
+    Requirements:
+        - SR-004: Transaction Entity Schema
+        - SR-009: Immutable Transaction Pattern
+    """
     transaction = Transaction(
         date=datetime(2026, 1, 15),
         description="Test transaction",
