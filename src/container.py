@@ -6,11 +6,17 @@ from dependency_injector import containers, providers
 from notion_client import Client
 
 from config.settings import Settings
+from src.application.services.categorization_service import CategorizationService
 from src.application.use_cases import (
     CreateTransactionUseCase,
     ImportCSVUseCase,
     UpdateReimbursementUseCase,
 )
+from src.application.use_cases.import_pdf import ImportPDFUseCase
+from src.infrastructure.ai.ollama_client import OllamaClient
+from src.infrastructure.ai.prompt_builder import CategorizationPromptBuilder
+from src.infrastructure.ai.response_parser import CategorizationResponseParser
+from src.infrastructure.parsers.pdf_parser import PDFParser
 from src.infrastructure.repositories import (
     NotionTransactionRepository,
     SQLiteTransactionRepository,
@@ -50,6 +56,31 @@ class Container(containers.DeclarativeContainer):
         ),
     )
 
+    # PDF Parser
+    pdf_parser = providers.Singleton(PDFParser)
+
+    # Ollama LLM Client
+    ollama_client = providers.Singleton(
+        OllamaClient,
+        base_url=config.provided.ollama_base_url,
+        model=config.provided.ollama_model,
+        timeout=config.provided.ollama_timeout,
+    )
+
+    # AI Categorization Components
+    prompt_builder = providers.Singleton(CategorizationPromptBuilder)
+
+    response_parser = providers.Singleton(CategorizationResponseParser)
+
+    categorization_service = providers.Singleton(
+        CategorizationService,
+        ollama_client=ollama_client,
+        prompt_builder=prompt_builder,
+        response_parser=response_parser,
+        batch_size=config.provided.ollama_batch_size,
+        confidence_threshold=config.provided.ai_confidence_threshold,
+    )
+
     # Use Cases
     create_transaction_use_case = providers.Factory(
         CreateTransactionUseCase,
@@ -59,6 +90,13 @@ class Container(containers.DeclarativeContainer):
     import_csv_use_case = providers.Factory(
         ImportCSVUseCase,
         repository=transaction_repository,
+    )
+
+    import_pdf_use_case = providers.Factory(
+        ImportPDFUseCase,
+        repository=transaction_repository,
+        pdf_parser=pdf_parser,
+        categorization_service=categorization_service,
     )
 
     update_reimbursement_use_case = providers.Factory(

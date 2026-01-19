@@ -31,8 +31,15 @@ class Settings(BaseSettings):
 
     # Application Configuration
     default_category: str = "Uncategorized"
-    log_level: str = "INFO"
+    log_level: str = "DEBUG"
     environment: str = "development"  # "development" or "production"
+
+    # Ollama LLM Configuration
+    ollama_base_url: str = "http://supermicro:11434"
+    ollama_model: str = "llama3.1:8b"
+    ollama_timeout: int = 120
+    ollama_batch_size: int = 5  # Number of transactions to categorize in one batch
+    ai_confidence_threshold: float = 0.7  # Transactions below this need review
 
     # Security
     encryption_key: Optional[str] = None

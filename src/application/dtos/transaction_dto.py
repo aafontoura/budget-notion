@@ -77,3 +77,12 @@ class ImportCSVDTO(BaseModel):
     default_category: str = "Uncategorized"
     account_name: Optional[str] = None
     bank_config: Optional[str] = None  # e.g., "ing", "rabobank", "generic_us"
+
+
+class ImportPDFDTO(BaseModel):
+    """DTO for PDF import configuration."""
+
+    file_path: str
+    account_name: Optional[str] = None
+    use_ai_categorization: bool = True
+    confidence_threshold: float = Field(0.7, ge=0.0, le=1.0)  # Transactions below this need review

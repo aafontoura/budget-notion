@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from config.settings import settings
-from src.application.dtos import CreateTransactionDTO, ImportCSVDTO
+from src.application.dtos import CreateTransactionDTO, ImportCSVDTO, ImportPDFDTO
 from src.container import Container, setup_logging
 
 
@@ -141,6 +141,78 @@ def import_csv(file_path: str, category: str, account: str, bank: str):
 
     except Exception as e:
         click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("file_path", type=click.Path(exists=True))
+@click.option("--account", "-a", help="Account name (optional).")
+@click.option("--no-ai", is_flag=True, help="Disable AI categorization (use default category).")
+@click.option("--confidence-threshold", "-t", type=float, default=0.7, help="Confidence threshold for review (default: 0.7).")
+def import_pdf(file_path: str, account: str, no_ai: bool, confidence_threshold: float):
+    """Import transactions from a PDF bank statement with AI categorization."""
+    try:
+        click.echo(f"Importing transactions from PDF: {file_path}")
+
+        if not no_ai:
+            click.echo("Testing connection to Ollama LLM server...")
+            # Test Ollama connection
+            categorization_service = container.categorization_service()
+            if not categorization_service.test_connection():
+                click.echo(click.style("⚠ Warning: Cannot connect to Ollama server. Falling back to default categorization.", fg="yellow"))
+                no_ai = True
+            else:
+                click.echo(click.style("✓ Connected to Ollama", fg="green"))
+
+        # Create DTO
+        dto = ImportPDFDTO(
+            file_path=file_path,
+            account_name=account,
+            use_ai_categorization=not no_ai,
+            confidence_threshold=confidence_threshold,
+        )
+
+        # Execute use case with progress indicator
+        click.echo("\nExtracting transactions from PDF...")
+        use_case = container.import_pdf_use_case()
+
+        with click.progressbar(length=100, label="Processing") as bar:
+            bar.update(30)  # PDF extraction
+            result = use_case.execute(dto)
+            bar.update(70)  # AI categorization + import
+
+        # Display results
+        click.echo()
+        click.echo(click.style("✓ Import complete!", fg="green", bold=True))
+        click.echo(f"  Total parsed: {result['total_parsed']}")
+        click.echo(f"  Successful imports: {result['successful_imports']}")
+        click.echo(f"  Failed imports: {result['failed_imports']}")
+
+        if result['needs_review'] > 0:
+            click.echo()
+            click.echo(click.style(f"⚠ {result['needs_review']} transactions need review (low confidence)", fg="yellow", bold=True))
+            click.echo(f"  Run 'budget-notion review-transactions' to review them")
+
+        if result['successful_imports'] > 0:
+            click.echo()
+            click.echo("Sample transactions:")
+            for transaction in result['transactions'][:5]:  # Show first 5
+                confidence_indicator = ""
+                if transaction.ai_confidence is not None:
+                    confidence_color = "green" if transaction.ai_confidence >= confidence_threshold else "yellow"
+                    confidence_indicator = click.style(f" [{transaction.ai_confidence:.0%}]", fg=confidence_color)
+
+                click.echo(f"  • {transaction.date.strftime('%Y-%m-%d')} | "
+                          f"{transaction.description[:35]:35} | "
+                          f"€{transaction.amount:,.2f} | "
+                          f"{transaction.category}/{transaction.subcategory or 'N/A'}"
+                          f"{confidence_indicator}")
+
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        import traceback
+        if settings.log_level.upper() == "DEBUG":
+            click.echo(traceback.format_exc(), err=True)
         sys.exit(1)
 
 
@@ -369,6 +441,115 @@ def tag_total(tag: str, start_date: str, end_date: str):
 
     except Exception as e:
         click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--threshold", "-t", type=float, default=0.7, help="Show transactions below this confidence (default: 0.7).")
+@click.option("--limit", "-l", type=int, default=50, help="Maximum number of transactions to review (default: 50).")
+@click.option("--account", "-a", help="Filter by account.")
+def review_transactions(threshold: float, limit: int, account: str):
+    """Review transactions that need manual verification (low AI confidence)."""
+    try:
+        from src.application.dtos import UpdateTransactionDTO
+
+        # Get repository
+        repository = container.transaction_repository()
+
+        # Find transactions that need review
+        click.echo(f"Finding transactions with confidence < {threshold:.0%}...")
+        all_transactions = repository.list(account=account, limit=limit * 2)  # Get more to filter
+
+        # Filter unreviewed transactions with low confidence
+        needs_review = [
+            txn for txn in all_transactions
+            if txn.needs_review and (txn.ai_confidence is None or txn.ai_confidence < threshold)
+        ][:limit]
+
+        if not needs_review:
+            click.echo(click.style("✓ No transactions need review!", fg="green", bold=True))
+            return
+
+        click.echo(f"\nFound {len(needs_review)} transactions that need review:\n")
+
+        reviewed_count = 0
+        for i, transaction in enumerate(needs_review, 1):
+            # Display transaction details
+            click.echo(click.style(f"Transaction {i}/{len(needs_review)}", fg="cyan", bold=True))
+            click.echo(f"  ID: {transaction.id}")
+            click.echo(f"  Date: {transaction.date.strftime('%Y-%m-%d')}")
+            click.echo(f"  Description: {transaction.description}")
+            click.echo(f"  Amount: €{transaction.amount:,.2f}")
+
+            confidence_str = f"{transaction.ai_confidence:.0%}" if transaction.ai_confidence is not None else "N/A"
+            confidence_color = "yellow" if transaction.ai_confidence and transaction.ai_confidence < threshold else "red"
+            click.echo(f"  AI Category: {transaction.category}/{transaction.subcategory or 'N/A'} "
+                      f"(confidence: {click.style(confidence_str, fg=confidence_color)})")
+
+            if transaction.account:
+                click.echo(f"  Account: {transaction.account}")
+
+            click.echo()
+
+            # Ask user for action
+            action = click.prompt(
+                "Action",
+                type=click.Choice(["accept", "edit", "skip", "quit"], case_sensitive=False),
+                default="accept",
+                show_choices=True,
+            )
+
+            if action == "quit":
+                click.echo(f"\nReviewed {reviewed_count} transactions before quitting.")
+                break
+
+            elif action == "skip":
+                click.echo(click.style("Skipped", fg="yellow"))
+                click.echo()
+                continue
+
+            elif action == "accept":
+                # Mark as reviewed without changes
+                update_dto = UpdateTransactionDTO(reviewed=True)
+                repository.update(transaction.id, update_dto)
+                reviewed_count += 1
+                click.echo(click.style("✓ Accepted and marked as reviewed", fg="green"))
+                click.echo()
+
+            elif action == "edit":
+                # Allow editing category/subcategory
+                click.echo("\nEdit transaction (press Enter to keep current value):")
+
+                new_category = click.prompt("Category", default=transaction.category)
+                new_subcategory = click.prompt("Subcategory", default=transaction.subcategory or "")
+
+                # Update transaction
+                update_dto = UpdateTransactionDTO(
+                    category=new_category if new_category != transaction.category else None,
+                    reviewed=True,
+                )
+
+                # Note: We can't update subcategory through UpdateTransactionDTO
+                # This is a limitation - would need to extend the DTO
+                repository.update(transaction.id, update_dto)
+                reviewed_count += 1
+
+                click.echo(click.style("✓ Updated and marked as reviewed", fg="green"))
+                click.echo()
+
+        # Summary
+        click.echo()
+        click.echo(click.style(f"Review complete! Processed {reviewed_count} transactions.", fg="green", bold=True))
+
+        remaining = len(needs_review) - reviewed_count
+        if remaining > 0:
+            click.echo(f"{remaining} transactions still need review.")
+
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        import traceback
+        if settings.log_level.upper() == "DEBUG":
+            click.echo(traceback.format_exc(), err=True)
         sys.exit(1)
 
 
