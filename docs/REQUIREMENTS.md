@@ -314,14 +314,18 @@ Transaction:
 **Description:** The system shall support a comprehensive 12-category budget structure.
 
 **Specification:**
-- 12 main categories: Income, Home, Transportation, Food & Dining, Health & Insurance, Baby & Childcare, Personal Care, Entertainment & Lifestyle, Investments & Savings, Utilities & Subscriptions, Miscellaneous, Gifts & Donations
+- 12 main categories: Income, Home, Transportation, Food & Groceries, Health & Wellness, Utilities & Connectivity, Insurance, Personal & Lifestyle, Baby & Childcare, Investment & Savings, Fees, Miscellaneous
 - Each category has multiple subcategories
 - Each subcategory has optional budget amount and period
 - Budgets support: monthly, quarterly, yearly periods
+- **Note:** Car Insurance is categorized under "Insurance" (not "Transportation") as of 2025-01-19
 
-**Rationale:** Comprehensive categories cover all personal finance scenarios.
+**Rationale:** Comprehensive categories cover all personal finance scenarios with clear separation of insurance from transportation costs.
 
 **Verification:** Category data validation tests
+
+**Change Log:**
+- 2025-01-19: Moved "Car Insurance" from Transportation to Insurance category; updated 43 budget allocations to match actual spending patterns
 
 ---
 

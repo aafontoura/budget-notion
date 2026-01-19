@@ -43,10 +43,10 @@ def test_auto_tag_car_expenses(auto_tagger):
         date=datetime.now(),
         description="Car insurance payment",
         amount=Decimal("-100.00"),
-        category="Transportation",
+        category="Insurance",
     )
 
-    tagged = auto_tagger.apply_tags(transaction, "Transportation", "Car Insurance")
+    tagged = auto_tagger.apply_tags(transaction, "Insurance", "Car Insurance")
 
     assert "car" in tagged.tags
     assert "fixed-expense" in tagged.tags
@@ -182,11 +182,11 @@ def test_auto_tag_preserves_existing_tags(auto_tagger):
         date=datetime.now(),
         description="Car insurance",
         amount=Decimal("-100.00"),
-        category="Transportation",
+        category="Insurance",
         tags=["custom-tag"],
     )
 
-    tagged = auto_tagger.apply_tags(transaction, "Transportation", "Car Insurance")
+    tagged = auto_tagger.apply_tags(transaction, "Insurance", "Car Insurance")
 
     assert "custom-tag" in tagged.tags
     assert "car" in tagged.tags
@@ -199,11 +199,11 @@ def test_auto_tag_no_duplicates(auto_tagger):
         date=datetime.now(),
         description="Car insurance",
         amount=Decimal("-100.00"),
-        category="Transportation",
+        category="Insurance",
         tags=["car"],  # Already has 'car' tag
     )
 
-    tagged = auto_tagger.apply_tags(transaction, "Transportation", "Car Insurance")
+    tagged = auto_tagger.apply_tags(transaction, "Insurance", "Car Insurance")
 
     # Count occurrences of 'car' tag
     car_count = tagged.tags.count("car")

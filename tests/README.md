@@ -116,16 +116,20 @@ pytest -m "notion"
 
 **Test Database:** Each test uses an isolated temporary SQLite database
 
-### 3. Notion Integration Tests (3 tests, requires credentials)
+### 3. Notion Integration Tests (7 tests, requires credentials)
 
 Tests marked with `@pytest.mark.notion` require:
 - `NOTION_TOKEN` environment variable
 - `NOTION_DATABASE_ID` environment variable
 
 **Tests included:**
-- Basic transaction creation
-- Transaction with tags and auto-tagging
-- Reimbursable transaction creation
+- Basic transaction creation (write)
+- Transaction with tags and auto-tagging (write)
+- Reimbursable transaction creation (write)
+- List transactions from Notion (read - verifies data_sources.query)
+- Filter transactions by category (read - verifies filtering)
+- Search transactions by description (read - verifies search)
+- Retrieve specific transaction (read - verifies get by ID)
 
 **Note:** Ensure your Notion database has the required properties: Tags (multi-select), Reimbursable (checkbox), Expected Reimbursement (number), Actual Reimbursement (number), and Reimbursement Status (select).
 
@@ -340,5 +344,5 @@ pytest -m "not slow"
 ---
 
 **Last Updated:** 2026-01-18
-**Test Suite Version:** 2.1
-**Total Tests:** 60 (60 passing - 36 unit, 21 integration, 3 Notion)
+**Test Suite Version:** 2.2
+**Total Tests:** 64 (64 passing - 36 unit, 21 integration SQLite, 7 Notion)
