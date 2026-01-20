@@ -91,15 +91,32 @@ class ImportPDFUseCase:
                 "transactions": [],
             }
 
-        # Step 2: Categorize transactions using AI
-        categorization_results = []
+        # Step 2: Categorize transactions using AI (optimized batch mode)
+        categorization_results = {}
         if dto.use_ai_categorization:
-            logger.info("Starting AI categorization...")
+            logger.info("Starting AI categorization (optimized batch mode)...")
             try:
-                categorization_results = self.categorization_service.categorize_batch(
-                    raw_transactions
+                # Assign temporary IDs to transactions for batch processing
+                transactions_with_ids = []
+                for i, raw_txn in enumerate(raw_transactions):
+                    txn_with_id = {
+                        "id": str(i),  # Use index as temporary ID
+                        "description": raw_txn["description"],
+                        "amount": raw_txn["amount"],
+                        "date": raw_txn.get("date", ""),
+                    }
+                    transactions_with_ids.append(txn_with_id)
+
+                # Use optimized batch categorization
+                categorization_results = (
+                    self.categorization_service.categorize_batch_optimized(
+                        transactions_with_ids
+                    )
                 )
-                logger.info(f"Categorized {len(categorization_results)} transactions")
+                logger.info(
+                    f"Categorized {len(categorization_results)} transactions "
+                    f"using optimized batching"
+                )
             except Exception as e:
                 logger.error(f"AI categorization failed: {e}")
                 # Continue with default categorization
@@ -127,8 +144,9 @@ class ImportPDFUseCase:
                     continue
 
                 # Get categorization result (if available)
-                if i < len(categorization_results):
-                    result = categorization_results[i]
+                txn_id = str(i)
+                if txn_id in categorization_results:
+                    result = categorization_results[txn_id]
                     category = result.category
                     subcategory = result.subcategory
                     ai_confidence = result.confidence

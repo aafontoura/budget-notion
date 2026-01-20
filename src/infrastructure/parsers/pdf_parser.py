@@ -65,7 +65,22 @@ class PDFParser:
 
                 transactions = []
 
-                # Try table extraction first (most structured)
+                # Extract all text first to detect bank format
+                all_text = ""
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        all_text += page_text + "\n"
+
+                # Try Trade Republic format first (specific pattern)
+                if "TRADE REPUBLIC" in all_text.upper() or "ACCOUNT TRANSACTIONS" in all_text:
+                    logger.info("Detected Trade Republic format")
+                    transactions = self._parse_trade_republic(pdf)
+                    if transactions:
+                        logger.info(f"Extracted {len(transactions)} transactions using Trade Republic parser")
+                        return transactions
+
+                # Fallback: Try table and text extraction
                 for page_num, page in enumerate(pdf.pages, 1):
                     logger.debug(f"Processing page {page_num}")
 
@@ -338,3 +353,287 @@ class PDFParser:
         except (InvalidOperation, ValueError):
             logger.debug(f"Could not parse amount: {amount_str}")
             return None
+
+    # Trade Republic text-based parsing helpers
+    # Regex patterns
+    DATE_START_RE = re.compile(
+        r"^(0[1-9]|[12]\d|3[01])\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b"
+    )
+    YEAR_ANYWHERE_RE = re.compile(r"\b(19|20)\d{2}\b")
+    EUR_ANY_RE = re.compile(r"€\s*[\d.,]+")
+
+    # Month name to number mapping
+    MONTHS = {
+        "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+        "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12
+    }
+
+    # Known transaction types
+    KNOWN_TYPES = {"Reward", "Interest", "Trade", "Card", "Transfer", "Earnings"}
+
+    # Lines to drop (headers, footers, legal text)
+    DROP_EXACT = {
+        "DATE", "TYPE", "DESCRIPTION", "MONEY IN", "MONEY OUT", "BALANCE",
+        "MONEY", "OUT", "IN",
+        "DATE TYPE DESCRIPTION MONEY IN M OU O T NEY BALANCE",
+    }
+
+    DROP_SUBSTRINGS = [
+        "TRADE REPUBLIC BANK GMBH",
+        "KRAANSPOOR",
+        "Generated on",
+        "Page",
+        "www.traderepublic",
+        "Seat of the Company",
+        "Directors",
+        "VAT ID No",
+        "CCI number",
+        "AG Charlottenburg",
+        "Brunnenstrasse",
+    ]
+
+    def _clean_line(self, s: str) -> str:
+        """Clean a text line (normalize whitespace, remove null artifacts)."""
+        s = s.replace("\u00a0", " ")
+        s = re.sub(r"\s+", " ", s).strip()
+        if s.endswith("null"):
+            s = s[:-4].strip()
+        return s
+
+    def _extract_text_lines(self, pdf) -> list[str]:
+        """Extract text lines from all pages with tolerances."""
+        lines = []
+        for page in pdf.pages:
+            txt = page.extract_text(x_tolerance=2, y_tolerance=3) or ""
+            for raw in txt.splitlines():
+                line = self._clean_line(raw)
+                if line:
+                    lines.append(line)
+        return lines
+
+    def _slice_transactions(self, lines: list[str]) -> list[str]:
+        """Extract lines between 'ACCOUNT TRANSACTIONS' and 'BALANCE OVERVIEW'."""
+        start = None
+        end = None
+        for i, l in enumerate(lines):
+            if l == "ACCOUNT TRANSACTIONS":
+                start = i + 1
+                continue
+            if start is not None and l in ("BALANCE OVERVIEW", "TRANSACTION OVERVIEW"):
+                end = i
+                break
+        if start is None:
+            # If no marker found, return all lines (fallback)
+            logger.warning("'ACCOUNT TRANSACTIONS' marker not found, parsing all lines")
+            return lines
+        return lines[start:end] if end is not None else lines[start:]
+
+    def _filter_noise(self, lines: list[str]) -> list[str]:
+        """Filter out headers, footers, and legal text."""
+        out = []
+        for l in lines:
+            if l in self.DROP_EXACT:
+                continue
+            if any(sub in l for sub in self.DROP_SUBSTRINGS):
+                continue
+            out.append(l)
+        return out
+
+    def _split_into_blocks(self, lines: list[str]) -> list[list[str]]:
+        """Split lines into transaction blocks (starts with date pattern)."""
+        blocks = []
+        cur = []
+        for l in lines:
+            if self.DATE_START_RE.match(l):
+                if cur:
+                    blocks.append(cur)
+                cur = [l]
+            else:
+                if cur:  # Ignore preamble before first date
+                    cur.append(l)
+        if cur:
+            blocks.append(cur)
+        return blocks
+
+    def _detect_type(self, tokens: list[str]) -> str:
+        """Detect transaction type from tokens."""
+        for t in tokens:
+            if t in self.KNOWN_TYPES:
+                return t
+        return ""
+
+    def _build_description(self, block: list[str]) -> str:
+        """Build description by removing structural markers and amounts."""
+        desc_parts = []
+        for l in block[1:]:  # Skip date line
+            # Skip transaction type keywords
+            if l in self.KNOWN_TYPES:
+                continue
+            if l == "Transaction":
+                continue
+            # Skip noise
+            if l in self.DROP_EXACT or any(sub in l for sub in self.DROP_SUBSTRINGS):
+                continue
+
+            # Remove year and amounts
+            clean = l
+            clean = self.YEAR_ANYWHERE_RE.sub("", clean)
+            clean = self.EUR_ANY_RE.sub("", clean)
+            clean = re.sub(r"\s+", " ", clean).strip()
+
+            # Remove "null" artifacts
+            clean = clean.replace("null", "").strip()
+
+            if clean:
+                desc_parts.append(clean)
+
+        description = " ".join(desc_parts).strip(" -")
+
+        # Remove leading transaction type words that might have been part of description
+        for typ in self.KNOWN_TYPES:
+            if description.startswith(typ + " "):
+                description = description[len(typ):].strip()
+                break
+
+        return description
+
+    def _parse_eur_amount(self, euro_text: str) -> Decimal | None:
+        """Parse € amount string to Decimal."""
+        m = re.search(r"€\s*([\d.,]+)", euro_text)
+        if not m:
+            return None
+        amount_str = m.group(1).replace(",", "")
+        if "." not in amount_str:
+            amount_str += ".00"
+        try:
+            return Decimal(amount_str)
+        except (InvalidOperation, ValueError):
+            return None
+
+    def _parse_trade_republic_block(self, block: list[str]) -> dict | None:
+        """
+        Parse a single transaction block.
+
+        Expected format:
+        - First line: "DD Mon [Type] ..." (e.g., "03 Dec Card ...")
+        - Following lines: description, amounts, year
+        - Year can be anywhere in the block
+        - Last € amount is balance, second-to-last is transaction amount
+
+        Returns:
+            Transaction dict or None if parsing fails.
+        """
+        if not block:
+            return None
+
+        raw = " ".join(block)
+
+        # Parse date
+        m = self.DATE_START_RE.match(block[0])
+        if not m:
+            logger.debug(f"Cannot parse date from: {block[0]}")
+            return None
+
+        day = int(m.group(1))
+        mon = self.MONTHS[m.group(2)]
+
+        # Find year anywhere in block
+        y = self.YEAR_ANYWHERE_RE.search(raw)
+        if not y:
+            logger.debug(f"No year found in block: {block[0]}")
+            return None
+        year = int(y.group(0))
+
+        # Build date string
+        try:
+            from datetime import date as dt_date
+            tx_date = dt_date(year, mon, day).isoformat()
+        except ValueError:
+            logger.debug(f"Invalid date: {year}-{mon}-{day}")
+            return None
+
+        # Detect type
+        tokens = []
+        for l in block:
+            tokens.extend(l.split())
+        tx_type = self._detect_type(tokens)
+
+        # Extract amounts (last € is balance, second-to-last is transaction)
+        euros = self.EUR_ANY_RE.findall(raw)
+        amounts = [self._parse_eur_amount(e) for e in euros]
+        amounts = [a for a in amounts if a is not None]
+
+        if len(amounts) < 2:
+            # Need at least transaction amount + balance
+            logger.debug(f"Not enough amounts in block: {block[0]}")
+            return None
+
+        # Transaction amount is second-to-last
+        amt = amounts[-2]
+
+        # Determine if income or expense based on type
+        # Reward, Interest, Earnings, Transfer (incoming) = income
+        # Card, Trade, Transfer (outgoing) = expense
+        is_income = tx_type in ("Reward", "Interest", "Earnings")
+
+        # For transfers, check if incoming
+        if tx_type == "Transfer" and "Incoming transfer" in raw:
+            is_income = True
+
+        # Build description
+        description = self._build_description(block)
+        if not description:
+            logger.debug(f"Empty description for block: {block[0]}")
+            return None
+
+        # Normalize amount (income is positive, expense is negative)
+        if not is_income:
+            amt = -abs(amt)
+
+        return {
+            "date": tx_date,
+            "description": description,
+            "amount": str(amt),
+        }
+
+    def _parse_trade_republic(self, pdf) -> list[dict]:
+        """
+        Parse Trade Republic bank statement format using text extraction.
+
+        Uses robust text-based parsing instead of table extraction:
+        - Extract text with tolerances to reduce splitting issues
+        - Filter noise (headers, footers, legal text)
+        - Split into transaction blocks (starting with date pattern)
+        - Parse each block for date, description, and amounts
+
+        Args:
+            pdf: pdfplumber PDF object.
+
+        Returns:
+            List of transaction dictionaries.
+        """
+        # Extract all text lines from PDF
+        lines = self._extract_text_lines(pdf)
+
+        # Slice to transaction section
+        tx_lines = self._slice_transactions(lines)
+
+        # Filter out noise (headers, footers, legal text)
+        tx_lines = self._filter_noise(tx_lines)
+
+        # Split into transaction blocks
+        blocks = self._split_into_blocks(tx_lines)
+
+        # Parse each block
+        transactions = []
+        for block in blocks:
+            try:
+                txn = self._parse_trade_republic_block(block)
+                if txn:
+                    transactions.append(txn)
+            except Exception as e:
+                logger.debug(f"Failed to parse block: {e}")
+                continue
+
+        logger.info(f"Extracted {len(transactions)} Trade Republic transactions")
+        return transactions

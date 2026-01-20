@@ -195,7 +195,7 @@ class CategorizationResponseParser:
         self, response: str, transaction_count: int
     ) -> list[CategorizationResult]:
         """
-        Parse batch categorization response.
+        Parse batch categorization response (category only).
 
         Expected format: [
             {"id": 1, "category": "FOOD & GROCERIES", "confidence": 0.95},
@@ -250,6 +250,78 @@ class CategorizationResponseParser:
                 )
                 for _ in range(transaction_count)
             ]
+
+    def parse_optimized_batch_response(
+        self, response: str, transaction_ids: list[str]
+    ) -> dict[str, CategorizationResult]:
+        """
+        Parse optimized batch response (category + subcategory).
+
+        Expected format: [
+            {"id": "uuid-1", "category": "FOOD & GROCERIES", "subcategory": "Groceries", "confidence": 0.95},
+            {"id": "uuid-2", "category": "TRANSPORTATION", "subcategory": "Public Transit", "confidence": 0.88}
+        ]
+
+        Args:
+            response: LLM response string.
+            transaction_ids: List of expected transaction IDs.
+
+        Returns:
+            Dict mapping transaction ID to CategorizationResult.
+        """
+        try:
+            # Extract JSON array
+            json_data = self._extract_json(response)
+
+            if not isinstance(json_data, list):
+                raise ValueError("Response is not a JSON array")
+
+            results = {}
+            for item in json_data:
+                txn_id = str(item.get("id", "")).strip()
+                category = item.get("category", "").strip()
+                subcategory = item.get("subcategory", "").strip()
+                confidence = float(item.get("confidence", 0.5))
+
+                # Validate
+                category = self._validate_category(category)
+                subcategory = self._validate_subcategory(category, subcategory)
+                confidence = max(0.0, min(1.0, confidence))
+
+                results[txn_id] = CategorizationResult(
+                    category=category,
+                    subcategory=subcategory,
+                    confidence=confidence,
+                    raw_response=json.dumps(item),
+                )
+
+            # Fill missing IDs with fallback
+            for txn_id in transaction_ids:
+                if txn_id not in results:
+                    logger.warning(f"Missing result for transaction ID: {txn_id}")
+                    results[txn_id] = CategorizationResult(
+                        category="Miscellaneous",
+                        subcategory="Uncategorized",
+                        confidence=0.0,
+                        raw_response="Missing from batch response",
+                    )
+
+            return results
+
+        except Exception as e:
+            logger.warning(f"Failed to parse optimized batch response: {e}")
+            logger.debug(f"Raw response: {response}")
+
+            # Fallback: return generic results for all transaction IDs
+            return {
+                txn_id: CategorizationResult(
+                    category="Miscellaneous",
+                    subcategory="Uncategorized",
+                    confidence=0.0,
+                    raw_response=response,
+                )
+                for txn_id in transaction_ids
+            }
 
     def _extract_json(self, response: str) -> dict | list:
         """

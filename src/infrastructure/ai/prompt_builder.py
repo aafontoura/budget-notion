@@ -90,6 +90,8 @@ Example: {{"subcategory": "Groceries", "confidence": 0.92}}"""
         """
         Build prompt for batch categorization (multiple transactions).
 
+        DEPRECATED: Use build_optimized_batch_prompt for better performance.
+
         Args:
             transactions: List of transaction dicts.
 
@@ -114,6 +116,52 @@ JSON format (no explanation, array of objects):
   {{"id": 1, "category": "FOOD & GROCERIES", "confidence": 0.95}},
   {{"id": 2, "category": "TRANSPORTATION", "confidence": 0.88}}
 ]"""
+
+        return prompt
+
+    def build_optimized_batch_prompt(self, transactions: list[dict]) -> str:
+        """
+        Build optimized batch prompt for full categorization (category + subcategory).
+
+        Optimizations:
+        - No currency symbols (saves tokens)
+        - Compact format with IDs
+        - Single-shot categorization (category + subcategory together)
+        - Minimal category list
+
+        Args:
+            transactions: List of transaction dicts with 'id', 'description', 'amount'.
+
+        Returns:
+            Compact prompt string for batch processing.
+        """
+        # Build compact transaction list
+        txn_lines = []
+        for txn in transactions:
+            txn_id = txn.get("id", "")
+            desc = txn.get("description", "")
+            amount = txn.get("amount", "0")
+            # Remove currency symbol, compact format
+            txn_lines.append(f'{{"id":"{txn_id}","desc":"{desc}","amt":{amount}}}')
+
+        txn_block = ",\n".join(txn_lines)
+
+        # Compact category list (top-level only for brevity)
+        categories_compact = ", ".join(self.categories[:12])  # Limit to 12 main categories
+
+        prompt = f"""Categorize these transactions and return ONLY a JSON array. No other text.
+
+Categories: {categories_compact}
+
+Transactions:
+[
+{txn_block}
+]
+
+Return JSON array with format:
+[{{"id":"1","category":"FOOD & GROCERIES","subcategory":"Groceries","confidence":0.95}},{{"id":"2","category":"TRANSPORTATION","subcategory":"Public Transit","confidence":0.88}}]
+
+Output (JSON only):"""
 
         return prompt
 

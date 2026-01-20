@@ -29,7 +29,7 @@ class CategorizationService:
         ollama_client: OllamaClient,
         prompt_builder: CategorizationPromptBuilder,
         response_parser: CategorizationResponseParser,
-        batch_size: int = 5,
+        batch_size: int = 35,
         confidence_threshold: float = 0.9,
     ):
         """
@@ -39,7 +39,8 @@ class CategorizationService:
             ollama_client: Ollama LLM client.
             prompt_builder: Prompt builder for LLM.
             response_parser: Parser for LLM responses.
-            batch_size: Number of transactions to process in one batch (default: 5).
+            batch_size: Number of transactions to process in one batch (default: 35).
+                       Optimized for CPU inference - 30-40 transactions per batch.
             confidence_threshold: Confidence threshold for skipping subcategory step (default: 0.9).
         """
         self.ollama_client = ollama_client
@@ -110,6 +111,8 @@ class CategorizationService:
     def categorize_batch(self, transactions: list[dict]) -> list[CategorizationResult]:
         """
         Categorize multiple transactions efficiently using batching.
+
+        DEPRECATED: Use categorize_batch_optimized for better performance.
 
         Args:
             transactions: List of transaction dicts.
@@ -182,6 +185,87 @@ class CategorizationService:
                 )
 
         return results
+
+    def categorize_batch_optimized(
+        self, transactions: list[dict]
+    ) -> dict[str, CategorizationResult]:
+        """
+        Optimized batch categorization (category + subcategory in one call).
+
+        Performance optimizations:
+        - Single LLM call per batch (30-40 transactions)
+        - No currency symbols (fewer tokens)
+        - Compact JSON format
+        - keep_alive to prevent model reload
+        - Reduced num_predict for faster generation
+
+        Args:
+            transactions: List of transaction dicts with 'id', 'description', 'amount'.
+
+        Returns:
+            Dict mapping transaction ID to CategorizationResult.
+        """
+        if not transactions:
+            return {}
+
+        all_results = {}
+        total_batches = (len(transactions) + self.batch_size - 1) // self.batch_size
+
+        # Process in optimized batches
+        for batch_num, i in enumerate(
+            range(0, len(transactions), self.batch_size), start=1
+        ):
+            batch = transactions[i : i + self.batch_size]
+            batch_ids = [str(txn.get("id", "")) for txn in batch]
+
+            try:
+                logger.info(
+                    f"Processing batch {batch_num}/{total_batches} "
+                    f"({len(batch)} transactions)..."
+                )
+
+                # Build optimized batch prompt
+                batch_prompt = self.prompt_builder.build_optimized_batch_prompt(batch)
+
+                # Generate with batch mode (optimized parameters)
+                batch_response = self.ollama_client.generate(
+                    batch_prompt, is_batch=True
+                )
+
+                # Parse response
+                batch_results = self.response_parser.parse_optimized_batch_response(
+                    batch_response, batch_ids
+                )
+
+                all_results.update(batch_results)
+
+                logger.info(
+                    f"Batch {batch_num}/{total_batches} complete "
+                    f"({len(batch_results)} results)"
+                )
+
+            except OllamaError as e:
+                logger.error(f"Batch {batch_num} categorization failed: {e}")
+                logger.info(f"Falling back to individual processing for batch {batch_num}")
+
+                # Fallback: process individually
+                for txn in batch:
+                    txn_id = str(txn.get("id", ""))
+                    try:
+                        result = self.categorize_full(txn)
+                        all_results[txn_id] = result
+                    except Exception as fallback_error:
+                        logger.error(
+                            f"Individual categorization failed for {txn_id}: {fallback_error}"
+                        )
+                        all_results[txn_id] = CategorizationResult(
+                            category="Miscellaneous",
+                            subcategory="Uncategorized",
+                            confidence=0.0,
+                            raw_response=str(fallback_error),
+                        )
+
+        return all_results
 
     def categorize_full(self, transaction: dict) -> CategorizationResult:
         """

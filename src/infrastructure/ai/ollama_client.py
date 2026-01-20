@@ -59,12 +59,13 @@ class OllamaClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
     )
-    def generate(self, prompt: str, **options) -> str:
+    def generate(self, prompt: str, is_batch: bool = False, **options) -> str:
         """
         Generate response from Ollama.
 
         Args:
             prompt: Input prompt.
+            is_batch: Whether this is a batch request (adjusts parameters).
             **options: Additional options for generation (temperature, num_ctx, etc.).
 
         Returns:
@@ -75,12 +76,22 @@ class OllamaClient:
         """
         try:
             # Default options optimized for transaction categorization
-            default_options = {
-                "temperature": 0.1,  # Deterministic
-                "num_ctx": 2048,  # Small context window
-                "num_predict": 200,  # Limit output tokens
-                "num_thread": 6,  # Use CPU cores
-            }
+            if is_batch:
+                # Batch mode: larger context, controlled output size
+                default_options = {
+                    "temperature": 0.1,  # Deterministic
+                    "num_ctx": 1536,  # Enough for 30-40 transactions
+                    "num_predict": 2000,  # ~50 chars per transaction × 40 transactions
+                    "num_thread": 6,  # Use CPU cores
+                }
+            else:
+                # Single transaction mode
+                default_options = {
+                    "temperature": 0.1,  # Deterministic
+                    "num_ctx": 1024,  # Smaller context
+                    "num_predict": 50,  # Small JSON response
+                    "num_thread": 6,  # Use CPU cores
+                }
 
             # Merge with provided options
             generation_options = {**default_options, **options}
@@ -90,10 +101,11 @@ class OllamaClient:
                 "prompt": prompt,
                 "stream": False,
                 "options": generation_options,
+                "keep_alive": "30m",  # Keep model loaded during batch jobs
             }
 
             logger.debug(f"Sending request to Ollama: {self.base_url}/api/generate")
-            logger.debug(f"Payload: {payload}")
+            logger.debug(f"Batch mode: {is_batch}, Payload options: {generation_options}")
 
             response = self.client.post(
                 f"{self.base_url}/api/generate",
