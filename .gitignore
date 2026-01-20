@@ -159,3 +159,4 @@ logs/
 tmp/
 temp/
 *.tmp
+tests/fixtures/camt053/*

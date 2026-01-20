@@ -26,6 +26,9 @@ pre-commit==4.0.1
 # PDF parsing
 pdfplumber==0.11.0
 
+# CAMT.053 (ISO 20022 XML) parsing
+pycamt>=1.0.1
+
 # HTTP client for Ollama API
 httpx==0.27.0
 

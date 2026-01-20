@@ -12,10 +12,12 @@ from src.application.use_cases import (
     ImportCSVUseCase,
     UpdateReimbursementUseCase,
 )
+from src.application.use_cases.import_camt053 import ImportCAMT053UseCase
 from src.application.use_cases.import_pdf import ImportPDFUseCase
 from src.infrastructure.ai.ollama_client import OllamaClient
 from src.infrastructure.ai.prompt_builder import CategorizationPromptBuilder
 from src.infrastructure.ai.response_parser import CategorizationResponseParser
+from src.infrastructure.parsers.camt053_parser import CAMT053Parser
 from src.infrastructure.parsers.pdf_parser import PDFParser
 from src.infrastructure.repositories import (
     NotionTransactionRepository,
@@ -56,8 +58,9 @@ class Container(containers.DeclarativeContainer):
         ),
     )
 
-    # PDF Parser
+    # Parsers
     pdf_parser = providers.Singleton(PDFParser)
+    camt053_parser = providers.Singleton(CAMT053Parser)
 
     # Ollama LLM Client
     ollama_client = providers.Singleton(
@@ -96,6 +99,13 @@ class Container(containers.DeclarativeContainer):
         ImportPDFUseCase,
         repository=transaction_repository,
         pdf_parser=pdf_parser,
+        categorization_service=categorization_service,
+    )
+
+    import_camt053_use_case = providers.Factory(
+        ImportCAMT053UseCase,
+        repository=transaction_repository,
+        camt053_parser=camt053_parser,
         categorization_service=categorization_service,
     )
 

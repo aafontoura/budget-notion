@@ -86,3 +86,13 @@ class ImportPDFDTO(BaseModel):
     account_name: Optional[str] = None
     use_ai_categorization: bool = True
     confidence_threshold: float = Field(0.7, ge=0.0, le=1.0)  # Transactions below this need review
+
+
+class ImportCAMT053DTO(BaseModel):
+    """DTO for CAMT.053 XML import configuration."""
+
+    file_path: str
+    account_name: Optional[str] = None
+    use_ai_categorization: bool = True
+    confidence_threshold: float = Field(0.7, ge=0.0, le=1.0)  # Transactions below this need review
+    allow_duplicates: bool = False  # Skip duplicate transactions by default

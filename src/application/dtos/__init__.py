@@ -2,6 +2,7 @@
 
 from src.application.dtos.transaction_dto import (
     CreateTransactionDTO,
+    ImportCAMT053DTO,
     ImportCSVDTO,
     ImportPDFDTO,
     TransactionFilterDTO,
@@ -14,4 +15,5 @@ __all__ = [
     "TransactionFilterDTO",
     "ImportCSVDTO",
     "ImportPDFDTO",
+    "ImportCAMT053DTO",
 ]

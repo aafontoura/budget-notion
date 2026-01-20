@@ -8,7 +8,12 @@ from pathlib import Path
 import click
 
 from config.settings import settings
-from src.application.dtos import CreateTransactionDTO, ImportCSVDTO, ImportPDFDTO
+from src.application.dtos import (
+    CreateTransactionDTO,
+    ImportCAMT053DTO,
+    ImportCSVDTO,
+    ImportPDFDTO,
+)
 from src.container import Container, setup_logging
 
 
@@ -185,6 +190,98 @@ def import_pdf(file_path: str, account: str, no_ai: bool, confidence_threshold: 
         click.echo()
         click.echo(click.style("✓ Import complete!", fg="green", bold=True))
         click.echo(f"  Total parsed: {result['total_parsed']}")
+        click.echo(f"  Successful imports: {result['successful_imports']}")
+        click.echo(f"  Failed imports: {result['failed_imports']}")
+
+        if result['needs_review'] > 0:
+            click.echo()
+            click.echo(click.style(f"⚠ {result['needs_review']} transactions need review (low confidence)", fg="yellow", bold=True))
+            click.echo(f"  Run 'budget-notion review-transactions' to review them")
+
+        if result['successful_imports'] > 0:
+            click.echo()
+            click.echo("Sample transactions:")
+            for transaction in result['transactions'][:5]:  # Show first 5
+                confidence_indicator = ""
+                if transaction.ai_confidence is not None:
+                    confidence_color = "green" if transaction.ai_confidence >= confidence_threshold else "yellow"
+                    confidence_indicator = click.style(f" [{transaction.ai_confidence:.0%}]", fg=confidence_color)
+
+                click.echo(f"  • {transaction.date.strftime('%Y-%m-%d')} | "
+                          f"{transaction.description[:35]:35} | "
+                          f"€{transaction.amount:,.2f} | "
+                          f"{transaction.category}/{transaction.subcategory or 'N/A'}"
+                          f"{confidence_indicator}")
+
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        import traceback
+        if settings.log_level.upper() == "DEBUG":
+            click.echo(traceback.format_exc(), err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("file_path", type=click.Path(exists=True))
+@click.option("--account", "-a", help="Account name (optional).")
+@click.option("--no-ai", is_flag=True, help="Disable AI categorization (use default category).")
+@click.option("--confidence-threshold", "-t", type=float, default=0.7, help="Confidence threshold for review (default: 0.7).")
+@click.option("--allow-duplicates", is_flag=True, help="Import duplicate transactions (default: skip duplicates).")
+def import_camt053(file_path: str, account: str, no_ai: bool, confidence_threshold: float, allow_duplicates: bool):
+    """Import transactions from CAMT.053 XML, ZIP, or directory with AI categorization.
+
+    Supports:
+    - Single XML file: statement.xml
+    - ZIP archive: statements.zip (processes all .xml files)
+    - Directory: statements/ (processes all .xml files)
+
+    Automatically skips duplicate transactions unless --allow-duplicates is specified.
+    """
+    try:
+        path = Path(file_path)
+
+        # Detect file type for user message
+        if path.is_dir():
+            click.echo(f"Importing from directory: {file_path}")
+        elif path.suffix.lower() == '.zip':
+            click.echo(f"Importing from ZIP archive: {file_path}")
+        else:
+            click.echo(f"Importing from XML file: {file_path}")
+
+        if not no_ai:
+            click.echo("Testing connection to Ollama LLM server...")
+            categorization_service = container.categorization_service()
+            if not categorization_service.test_connection():
+                click.echo(click.style("⚠ Warning: Cannot connect to Ollama server. Falling back to default categorization.", fg="yellow"))
+                no_ai = True
+            else:
+                click.echo(click.style("✓ Connected to Ollama", fg="green"))
+
+        # Create DTO
+        dto = ImportCAMT053DTO(
+            file_path=file_path,
+            account_name=account,
+            use_ai_categorization=not no_ai,
+            confidence_threshold=confidence_threshold,
+            allow_duplicates=allow_duplicates,
+        )
+
+        # Execute use case with progress indicator
+        click.echo("\nExtracting and importing transactions...")
+        use_case = container.import_camt053_use_case()
+
+        with click.progressbar(length=100, label="Processing") as bar:
+            bar.update(30)  # Extraction
+            result = use_case.execute(dto)
+            bar.update(70)  # AI categorization + import
+
+        # Display results
+        click.echo()
+        click.echo(click.style("✓ Import complete!", fg="green", bold=True))
+        click.echo(f"  Files processed: {result['total_files']}")
+        click.echo(f"  Total extracted: {result['total_parsed']}")
+        if result['duplicates_skipped'] > 0:
+            click.echo(click.style(f"  Duplicates skipped: {result['duplicates_skipped']}", fg="yellow"))
         click.echo(f"  Successful imports: {result['successful_imports']}")
         click.echo(f"  Failed imports: {result['failed_imports']}")
 
