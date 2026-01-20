@@ -1,8 +1,14 @@
 """Transaction categorization service using Ollama LLM."""
 
 import logging
+import time
 from typing import Optional
 
+from src.infrastructure.ai.base_llm_client import (
+    RateLimitError,
+    TransientError,
+    PermanentError,
+)
 from src.infrastructure.ai.ollama_client import OllamaClient, OllamaError
 from src.infrastructure.ai.prompt_builder import CategorizationPromptBuilder
 from src.infrastructure.ai.response_parser import (
@@ -31,6 +37,8 @@ class CategorizationService:
         response_parser: CategorizationResponseParser,
         batch_size: int = 35,
         confidence_threshold: float = 0.9,
+        batch_delay: float = 2.0,
+        max_batch_retries: int = 3,
     ):
         """
         Initialize categorization service.
@@ -42,16 +50,21 @@ class CategorizationService:
             batch_size: Number of transactions to process in one batch (default: 35).
                        Optimized for CPU inference - 30-40 transactions per batch.
             confidence_threshold: Confidence threshold for skipping subcategory step (default: 0.9).
+            batch_delay: Delay between batches in seconds to prevent rate limits (default: 2.0).
+            max_batch_retries: Max retries for batch processing before fallback (default: 3).
         """
         self.ollama_client = ollama_client
         self.prompt_builder = prompt_builder
         self.response_parser = response_parser
         self.batch_size = batch_size
         self.confidence_threshold = confidence_threshold
+        self.batch_delay = batch_delay
+        self.max_batch_retries = max_batch_retries
 
         logger.info(
             f"Initialized CategorizationService (batch_size={batch_size}, "
-            f"threshold={confidence_threshold})"
+            f"threshold={confidence_threshold}, batch_delay={batch_delay}s, "
+            f"max_retries={max_batch_retries})"
         )
 
     def categorize_single(self, transaction: dict) -> CategorizationResult:
@@ -199,6 +212,12 @@ class CategorizationService:
         - keep_alive to prevent model reload
         - Reduced num_predict for faster generation
 
+        Rate limit handling:
+        - Configurable delay between batches
+        - Intelligent retry with exponential backoff for rate limits
+        - Only fallback to individual processing after retries exhausted
+        - Respects retry_after hints from API
+
         Args:
             transactions: List of transaction dicts with 'id', 'description', 'amount'.
 
@@ -218,10 +237,52 @@ class CategorizationService:
             batch = transactions[i : i + self.batch_size]
             batch_ids = [str(txn.get("id", "")) for txn in batch]
 
+            # Add delay between batches to prevent rate limit cascades
+            if batch_num > 1 and self.batch_delay > 0:
+                logger.debug(f"Waiting {self.batch_delay}s before next batch...")
+                time.sleep(self.batch_delay)
+
+            # Try batch processing with retries
+            batch_results = self._process_batch_with_retry(
+                batch, batch_ids, batch_num, total_batches
+            )
+
+            all_results.update(batch_results)
+
+        return all_results
+
+    def _process_batch_with_retry(
+        self,
+        batch: list[dict],
+        batch_ids: list[str],
+        batch_num: int,
+        total_batches: int,
+    ) -> dict[str, CategorizationResult]:
+        """
+        Process a single batch with intelligent retry logic.
+
+        Handles rate limits with exponential backoff and only falls back
+        to individual processing after retries are exhausted.
+
+        Args:
+            batch: List of transactions to process.
+            batch_ids: List of transaction IDs.
+            batch_num: Current batch number (1-indexed).
+            total_batches: Total number of batches.
+
+        Returns:
+            Dict mapping transaction ID to CategorizationResult.
+        """
+        retry_count = 0
+        base_wait_time = 5  # Start with 5 seconds
+
+        while retry_count <= self.max_batch_retries:
             try:
                 logger.info(
                     f"Processing batch {batch_num}/{total_batches} "
-                    f"({len(batch)} transactions)..."
+                    f"({len(batch)} transactions)"
+                    + (f" [retry {retry_count}/{self.max_batch_retries}]" if retry_count > 0 else "")
+                    + "..."
                 )
 
                 # Build optimized batch prompt
@@ -237,35 +298,122 @@ class CategorizationService:
                     batch_response, batch_ids
                 )
 
-                all_results.update(batch_results)
-
                 logger.info(
                     f"Batch {batch_num}/{total_batches} complete "
                     f"({len(batch_results)} results)"
                 )
 
-            except OllamaError as e:
+                return batch_results
+
+            except RateLimitError as e:
+                retry_count += 1
+
+                if retry_count > self.max_batch_retries:
+                    logger.warning(
+                        f"Batch {batch_num} rate limit retries exhausted. "
+                        "Falling back to individual processing."
+                    )
+                    break
+
+                # Use retry_after from error if available, otherwise exponential backoff
+                wait_time = e.retry_after if e.retry_after else base_wait_time * (2 ** (retry_count - 1))
+
+                logger.warning(
+                    f"Rate limit reached for batch {batch_num}. "
+                    f"Waiting {wait_time}s before retry {retry_count}/{self.max_batch_retries}..."
+                )
+                time.sleep(wait_time)
+
+            except TransientError as e:
+                retry_count += 1
+
+                if retry_count > self.max_batch_retries:
+                    logger.warning(
+                        f"Batch {batch_num} transient error retries exhausted. "
+                        "Falling back to individual processing."
+                    )
+                    break
+
+                # Exponential backoff for transient errors
+                wait_time = base_wait_time * (2 ** (retry_count - 1))
+
+                logger.warning(
+                    f"Transient error for batch {batch_num}: {e}. "
+                    f"Waiting {wait_time}s before retry {retry_count}/{self.max_batch_retries}..."
+                )
+                time.sleep(wait_time)
+
+            except PermanentError as e:
+                # Don't retry permanent errors (auth, validation, etc.)
+                logger.error(
+                    f"Permanent error for batch {batch_num}: {e}. "
+                    "Not retrying. Falling back to individual processing."
+                )
+                break
+
+            except (OllamaError, Exception) as e:
+                # Legacy error handling for backward compatibility
                 logger.error(f"Batch {batch_num} categorization failed: {e}")
                 logger.info(f"Falling back to individual processing for batch {batch_num}")
+                break
 
-                # Fallback: process individually
-                for txn in batch:
-                    txn_id = str(txn.get("id", ""))
-                    try:
-                        result = self.categorize_full(txn)
-                        all_results[txn_id] = result
-                    except Exception as fallback_error:
-                        logger.error(
-                            f"Individual categorization failed for {txn_id}: {fallback_error}"
-                        )
-                        all_results[txn_id] = CategorizationResult(
-                            category="Miscellaneous",
-                            subcategory="Uncategorized",
-                            confidence=0.0,
-                            raw_response=str(fallback_error),
-                        )
+        # Fallback: process individually
+        logger.info(f"Processing batch {batch_num} transactions individually...")
+        results = {}
 
-        return all_results
+        for txn in batch:
+            txn_id = str(txn.get("id", ""))
+            try:
+                result = self.categorize_full(txn)
+                results[txn_id] = result
+            except RateLimitError as e:
+                logger.error(
+                    f"Rate limit error for transaction {txn_id}. "
+                    f"Retry after {e.retry_after}s."
+                )
+                results[txn_id] = CategorizationResult(
+                    category="Miscellaneous",
+                    subcategory="Uncategorized",
+                    confidence=0.0,
+                    raw_response=str(e),
+                    error_type="rate_limit",
+                    retry_after=e.retry_after,
+                    retriable=True,
+                )
+            except TransientError as e:
+                logger.error(f"Transient error for transaction {txn_id}: {e}")
+                results[txn_id] = CategorizationResult(
+                    category="Miscellaneous",
+                    subcategory="Uncategorized",
+                    confidence=0.0,
+                    raw_response=str(e),
+                    error_type="transient",
+                    retriable=True,
+                )
+            except PermanentError as e:
+                logger.error(f"Permanent error for transaction {txn_id}: {e}")
+                results[txn_id] = CategorizationResult(
+                    category="Miscellaneous",
+                    subcategory="Uncategorized",
+                    confidence=0.0,
+                    raw_response=str(e),
+                    error_type="permanent",
+                    retriable=False,
+                )
+            except Exception as fallback_error:
+                logger.error(
+                    f"Individual categorization failed for {txn_id}: {fallback_error}"
+                )
+                results[txn_id] = CategorizationResult(
+                    category="Miscellaneous",
+                    subcategory="Uncategorized",
+                    confidence=0.0,
+                    raw_response=str(fallback_error),
+                    error_type="unknown",
+                    retriable=True,
+                )
+
+        return results
 
     def categorize_full(self, transaction: dict) -> CategorizationResult:
         """

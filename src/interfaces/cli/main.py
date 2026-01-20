@@ -15,6 +15,7 @@ from src.application.dtos import (
     ImportPDFDTO,
 )
 from src.container import Container, setup_logging
+from src.infrastructure.ai.base_llm_client import RateLimitError, TransientError, PermanentError
 
 
 # Initialize container
@@ -23,6 +24,68 @@ container.wire(modules=[__name__])
 
 # Setup logging
 setup_logging(settings.log_level)
+
+
+def _display_rate_limit_help(retry_after: int = 60):
+    """Display helpful message when rate limit is encountered."""
+    click.echo()
+    click.echo(click.style("⚠ Rate Limit Reached", fg="yellow", bold=True))
+    click.echo(f"The LLM provider has rate limited your requests.")
+    click.echo()
+    click.echo(click.style("Suggestions:", fg="cyan", bold=True))
+    click.echo(f"  1. Wait {retry_after} seconds and try again")
+    click.echo(f"  2. Reduce batch size: Set LLM_BATCH_SIZE={max(1, settings.llm_batch_size // 2)} in .env")
+    click.echo(f"  3. Increase delay: Set LLM_BATCH_DELAY={settings.llm_batch_delay * 2} in .env")
+
+    # Suggest alternative providers
+    if settings.llm_provider != "ollama":
+        click.echo(f"  4. Use local Ollama instead: Set LLM_PROVIDER=ollama in .env")
+        click.echo(f"     (No rate limits, but requires local setup)")
+    else:
+        click.echo(f"  4. Switch to a different commercial provider (OpenAI, Anthropic, Google)")
+
+    click.echo()
+    click.echo(click.style("Current settings:", fg="cyan"))
+    click.echo(f"  Provider: {settings.llm_provider}")
+    click.echo(f"  Model: {settings.llm_model}")
+    click.echo(f"  Batch size: {settings.llm_batch_size}")
+    click.echo(f"  Batch delay: {settings.llm_batch_delay}s")
+
+
+def _handle_llm_error(e: Exception):
+    """Handle LLM-specific errors with helpful messages."""
+    if isinstance(e, RateLimitError):
+        _display_rate_limit_help(e.retry_after if hasattr(e, 'retry_after') else 60)
+        click.echo()
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        return True
+    elif isinstance(e, TransientError):
+        click.echo(click.style("⚠ Transient Error", fg="yellow", bold=True))
+        click.echo("This is a temporary issue with the LLM provider.")
+        click.echo("The system will automatically retry, but if it persists:")
+        click.echo("  • Check your internet connection")
+        click.echo("  • Verify the LLM service is operational")
+        click.echo("  • Try again in a few minutes")
+        click.echo()
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        return True
+    elif isinstance(e, PermanentError):
+        click.echo(click.style("✗ Configuration Error", fg="red", bold=True))
+        click.echo("There's an issue with your LLM configuration:")
+        click.echo()
+        click.echo(click.style("Check:", fg="cyan", bold=True))
+        click.echo("  • API key is valid (LLM_API_KEY in .env)")
+        click.echo("  • Model name is correct (LLM_MODEL in .env)")
+        click.echo("  • Provider is accessible (LLM_PROVIDER in .env)")
+        click.echo()
+        if settings.llm_provider == "ollama":
+            click.echo(f"  • Ollama is running at {settings.llm_base_url}")
+            click.echo(f"  • Model '{settings.llm_model}' is pulled: ollama pull {settings.llm_model}")
+        click.echo()
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        return True
+
+    return False
 
 
 @click.group()
@@ -214,7 +277,10 @@ def import_pdf(file_path: str, account: str, no_ai: bool, confidence_threshold: 
                           f"{confidence_indicator}")
 
     except Exception as e:
-        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        # Handle LLM-specific errors with helpful messages
+        if not _handle_llm_error(e):
+            click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+
         import traceback
         if settings.log_level.upper() == "DEBUG":
             click.echo(traceback.format_exc(), err=True)
@@ -306,7 +372,10 @@ def import_camt053(file_path: str, account: str, no_ai: bool, confidence_thresho
                           f"{confidence_indicator}")
 
     except Exception as e:
-        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        # Handle LLM-specific errors with helpful messages
+        if not _handle_llm_error(e):
+            click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+
         import traceback
         if settings.log_level.upper() == "DEBUG":
             click.echo(traceback.format_exc(), err=True)
@@ -643,7 +712,10 @@ def review_transactions(threshold: float, limit: int, account: str):
             click.echo(f"{remaining} transactions still need review.")
 
     except Exception as e:
-        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        # Handle LLM-specific errors with helpful messages
+        if not _handle_llm_error(e):
+            click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+
         import traceback
         if settings.log_level.upper() == "DEBUG":
             click.echo(traceback.format_exc(), err=True)
@@ -717,7 +789,10 @@ def sync(direction: str, conflict_resolution: str, mode: str, dry_run: bool):
             click.echo(click.style(f"⚠ {result.errors} errors occurred during sync", fg="yellow"))
 
     except Exception as e:
-        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        # Handle LLM-specific errors with helpful messages
+        if not _handle_llm_error(e):
+            click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+
         import traceback
         if settings.log_level.upper() == "DEBUG":
             click.echo(traceback.format_exc(), err=True)
@@ -762,7 +837,10 @@ def sync_status():
             click.echo("Run 'budget-notion sync bidirectional' to synchronize")
 
     except Exception as e:
-        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        # Handle LLM-specific errors with helpful messages
+        if not _handle_llm_error(e):
+            click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+
         import traceback
         if settings.log_level.upper() == "DEBUG":
             click.echo(traceback.format_exc(), err=True)

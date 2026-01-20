@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     llm_timeout: int = 300  # Request timeout in seconds
     llm_temperature: float = 0.1  # Sampling temperature (0.0 = deterministic, 1.0 = creative)
     llm_batch_size: int = 5  # Number of transactions to categorize in one batch
+    llm_batch_delay: float = 2.0  # Delay between batches in seconds (to prevent rate limits)
+    llm_max_batch_retries: int = 3  # Max retries for batch processing before fallback
     ai_confidence_threshold: float = 0.7  # Transactions below this need review
 
     # Backward compatibility (deprecated, use llm_* fields instead)

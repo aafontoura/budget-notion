@@ -19,6 +19,9 @@ class CategorizationResult:
     subcategory: Optional[str]
     confidence: float
     raw_response: str  # For debugging
+    error_type: Optional[str] = None  # Type of error if categorization failed (e.g., "rate_limit", "timeout")
+    retry_after: Optional[int] = None  # Seconds to wait before retrying (for rate limit errors)
+    retriable: bool = True  # Whether the error is retriable
 
 
 class ResponseParserError(Exception):

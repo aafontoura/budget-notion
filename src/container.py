@@ -120,6 +120,8 @@ class Container(containers.DeclarativeContainer):
         response_parser=response_parser,
         batch_size=config.provided.llm_batch_size,
         confidence_threshold=config.provided.ai_confidence_threshold,
+        batch_delay=config.provided.llm_batch_delay,
+        max_batch_retries=config.provided.llm_max_batch_retries,
     )
 
     # Use Cases
