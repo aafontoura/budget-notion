@@ -7,9 +7,11 @@ from notion_client import Client
 
 from config.settings import Settings
 from src.application.services.categorization_service import CategorizationService
+from src.application.services.sync_service import SyncService
 from src.application.use_cases import (
     CreateTransactionUseCase,
     ImportCSVUseCase,
+    SyncTransactionsUseCase,
     UpdateReimbursementUseCase,
 )
 from src.application.use_cases.import_camt053 import ImportCAMT053UseCase
@@ -148,6 +150,30 @@ class Container(containers.DeclarativeContainer):
     update_reimbursement_use_case = providers.Factory(
         UpdateReimbursementUseCase,
         repository=transaction_repository,
+    )
+
+    # Sync Service and Use Case
+    # Note: Always creates both repositories for sync operations
+    notion_repository = providers.Singleton(
+        NotionTransactionRepository,
+        client=notion_client,
+        database_id=config.provided.get_notion_database_id.call(),
+    )
+
+    sqlite_repository = providers.Singleton(
+        SQLiteTransactionRepository,
+        db_path=config.provided.sqlite_db_path,
+    )
+
+    sync_service = providers.Singleton(
+        SyncService,
+        notion_repository=notion_repository,
+        sqlite_repository=sqlite_repository,
+    )
+
+    sync_transactions_use_case = providers.Factory(
+        SyncTransactionsUseCase,
+        sync_service=sync_service,
     )
 
 

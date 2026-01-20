@@ -650,5 +650,124 @@ def review_transactions(threshold: float, limit: int, account: str):
         sys.exit(1)
 
 
+@cli.command()
+@click.argument("direction", type=click.Choice(["notion-to-sqlite", "sqlite-to-notion", "bidirectional"]))
+@click.option("--conflict-resolution", "-cr", type=click.Choice(["source_wins", "target_wins", "newest_wins", "skip"]), default="newest_wins", help="How to resolve conflicts.")
+@click.option("--mode", "-m", type=click.Choice(["full", "incremental"]), default="full", help="Sync mode.")
+@click.option("--dry-run", "-dr", is_flag=True, help="Preview changes without applying them.")
+def sync(direction: str, conflict_resolution: str, mode: str, dry_run: bool):
+    """
+    Synchronize transactions between Notion and SQLite.
+
+    DIRECTION can be:
+    - notion-to-sqlite: Sync from Notion to SQLite
+    - sqlite-to-notion: Sync from SQLite to Notion
+    - bidirectional: Two-way sync
+
+    Examples:
+      budget-notion sync notion-to-sqlite
+      budget-notion sync bidirectional --dry-run
+      budget-notion sync sqlite-to-notion --conflict-resolution newest_wins
+    """
+    try:
+        # Convert direction format (CLI uses hyphens, code uses underscores)
+        direction_normalized = direction.replace("-", "_")
+
+        # Show preview message for dry run
+        if dry_run:
+            click.echo(click.style("DRY RUN MODE - No changes will be made", fg="yellow", bold=True))
+            click.echo()
+
+        click.echo(f"Starting synchronization: {direction}")
+        click.echo(f"  Conflict resolution: {conflict_resolution}")
+        click.echo(f"  Mode: {mode}")
+        click.echo()
+
+        # Execute use case
+        use_case = container.sync_transactions_use_case()
+        result = use_case.execute(
+            direction=direction_normalized,
+            conflict_resolution=conflict_resolution,
+            mode=mode,
+            dry_run=dry_run,
+        )
+
+        # Display results
+        click.echo()
+        if dry_run:
+            click.echo(click.style("✓ Sync preview complete!", fg="green", bold=True))
+        else:
+            click.echo(click.style("✓ Sync complete!", fg="green", bold=True))
+
+        click.echo(f"  Direction: {result.direction.value}")
+        click.echo(f"  Created in target: {result.created_in_target}")
+        click.echo(f"  Updated in target: {result.updated_in_target}")
+        click.echo(f"  Conflicts resolved: {result.conflicts_resolved}")
+        click.echo(f"  Skipped: {result.skipped}")
+        click.echo(f"  Errors: {result.errors}")
+        click.echo(f"  Total processed: {result.total_processed}")
+        click.echo(f"  Duration: {result.duration_seconds:.2f}s")
+
+        if dry_run:
+            click.echo()
+            click.echo(click.style("Run without --dry-run to apply these changes", fg="yellow"))
+
+        if result.errors > 0:
+            click.echo()
+            click.echo(click.style(f"⚠ {result.errors} errors occurred during sync", fg="yellow"))
+
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        import traceback
+        if settings.log_level.upper() == "DEBUG":
+            click.echo(traceback.format_exc(), err=True)
+        sys.exit(1)
+
+
+@cli.command()
+def sync_status():
+    """
+    Check synchronization status between Notion and SQLite.
+
+    Shows the current state of both repositories and highlights differences.
+    """
+    try:
+        click.echo("Checking sync status...")
+        click.echo()
+
+        # Execute use case
+        use_case = container.sync_transactions_use_case()
+        status = use_case.get_status()
+
+        # Display status
+        click.echo(click.style("Sync Status:", fg="cyan", bold=True))
+        click.echo(f"  Notion transactions: {status['notion_count']}")
+        click.echo(f"  SQLite transactions: {status['sqlite_count']}")
+        click.echo()
+
+        if status['in_sync']:
+            click.echo(click.style("✓ Repositories are in sync", fg="green", bold=True))
+        else:
+            click.echo(click.style("⚠ Repositories are out of sync", fg="yellow", bold=True))
+            click.echo()
+            click.echo("Differences:")
+            if status['only_in_notion'] > 0:
+                click.echo(f"  • {status['only_in_notion']} transactions only in Notion")
+            if status['only_in_sqlite'] > 0:
+                click.echo(f"  • {status['only_in_sqlite']} transactions only in SQLite")
+            if status['out_of_sync'] > 0:
+                click.echo(f"  • {status['out_of_sync']} transactions differ between repositories")
+
+            click.echo()
+            click.echo("Run 'budget-notion sync bidirectional' to synchronize")
+
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+        import traceback
+        if settings.log_level.upper() == "DEBUG":
+            click.echo(traceback.format_exc(), err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()

@@ -9,7 +9,49 @@ from abc import ABC, abstractmethod
 
 
 class LLMError(Exception):
-    """Exception raised for LLM API errors."""
+    """Base exception for LLM API errors."""
+
+    pass
+
+
+class RateLimitError(LLMError):
+    """
+    Exception raised when API rate limit is exceeded (HTTP 429).
+
+    Attributes:
+        retry_after: Number of seconds to wait before retrying (from Retry-After header).
+        message: Human-readable error message.
+    """
+
+    def __init__(self, message: str = "Rate limit exceeded", retry_after: int = 60):
+        """
+        Initialize rate limit error.
+
+        Args:
+            message: Error message.
+            retry_after: Seconds to wait before retrying (default: 60).
+        """
+        super().__init__(message)
+        self.retry_after = retry_after
+        self.message = message
+
+
+class TransientError(LLMError):
+    """
+    Exception for transient/retryable errors (timeouts, 500-503 errors).
+
+    These errors should be retried with exponential backoff.
+    """
+
+    pass
+
+
+class PermanentError(LLMError):
+    """
+    Exception for permanent/non-retryable errors (auth, validation, 400-404).
+
+    These errors should NOT be retried as they indicate client-side issues.
+    """
 
     pass
 
