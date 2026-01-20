@@ -34,12 +34,36 @@ class Settings(BaseSettings):
     log_level: str = "DEBUG"
     environment: str = "development"  # "development" or "production"
 
-    # Ollama LLM Configuration
-    ollama_base_url: str = "http://supermicro:11434"
-    ollama_model: str = "llama3.1:8b"
-    ollama_timeout: int = 300
-    ollama_batch_size: int = 5  # Number of transactions to categorize in one batch
+    # LLM Configuration (Unified for all providers)
+    llm_provider: str = "ollama"  # "ollama", "openai", "anthropic", "google", "litellm"
+    llm_model: str = "llama3.1:8b"  # Model identifier (provider-specific)
+    llm_api_key: Optional[str] = None  # API key for commercial providers
+    llm_base_url: Optional[str] = "http://supermicro:11434"  # Base URL (for Ollama or custom endpoints)
+    llm_timeout: int = 300  # Request timeout in seconds
+    llm_temperature: float = 0.1  # Sampling temperature (0.0 = deterministic, 1.0 = creative)
+    llm_batch_size: int = 5  # Number of transactions to categorize in one batch
     ai_confidence_threshold: float = 0.7  # Transactions below this need review
+
+    # Backward compatibility (deprecated, use llm_* fields instead)
+    @property
+    def ollama_base_url(self) -> str:
+        """Deprecated: Use llm_base_url instead."""
+        return self.llm_base_url or "http://supermicro:11434"
+
+    @property
+    def ollama_model(self) -> str:
+        """Deprecated: Use llm_model instead."""
+        return self.llm_model if self.llm_provider == "ollama" else "llama3.1:8b"
+
+    @property
+    def ollama_timeout(self) -> int:
+        """Deprecated: Use llm_timeout instead."""
+        return self.llm_timeout
+
+    @property
+    def ollama_batch_size(self) -> int:
+        """Deprecated: Use llm_batch_size instead."""
+        return self.llm_batch_size
 
     # Security
     encryption_key: Optional[str] = None

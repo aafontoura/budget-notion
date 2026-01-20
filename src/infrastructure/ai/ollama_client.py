@@ -11,16 +11,18 @@ from tenacity import (
     wait_exponential,
 )
 
+from .base_llm_client import BaseLLMClient, LLMError
+
 logger = logging.getLogger(__name__)
 
 
-class OllamaError(Exception):
+class OllamaError(LLMError):
     """Exception raised for Ollama API errors."""
 
     pass
 
 
-class OllamaClient:
+class OllamaClient(BaseLLMClient):
     """
     Client for Ollama API.
 

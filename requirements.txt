@@ -32,6 +32,9 @@ pycamt>=1.0.1
 # HTTP client for Ollama API
 httpx==0.27.0
 
+# LLM providers
+litellm>=1.50.0  # Unified interface for 100+ LLM providers (OpenAI, Anthropic, Google, etc.)
+
 # API (optional)
 # fastapi==0.109.0
 # uvicorn[standard]==0.27.0

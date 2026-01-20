@@ -19,6 +19,7 @@ from src.infrastructure.ai.prompt_builder import CategorizationPromptBuilder
 from src.infrastructure.ai.response_parser import CategorizationResponseParser
 from src.infrastructure.parsers.camt053_parser import CAMT053Parser
 from src.infrastructure.parsers.pdf_parser import PDFParser
+from src.infrastructure.ai.litellm_client import LiteLLMClient
 from src.infrastructure.repositories import (
     NotionTransactionRepository,
     SQLiteTransactionRepository,
@@ -62,13 +63,48 @@ class Container(containers.DeclarativeContainer):
     pdf_parser = providers.Singleton(PDFParser)
     camt053_parser = providers.Singleton(CAMT053Parser)
 
-    # Ollama LLM Client
-    ollama_client = providers.Singleton(
-        OllamaClient,
-        base_url=config.provided.ollama_base_url,
-        model=config.provided.ollama_model,
-        timeout=config.provided.ollama_timeout,
+    # LLM Client (conditional based on provider)
+    llm_client = providers.Selector(
+        config.provided.llm_provider,
+        ollama=providers.Singleton(
+            OllamaClient,
+            base_url=config.provided.llm_base_url,
+            model=config.provided.llm_model,
+            timeout=config.provided.llm_timeout,
+        ),
+        openai=providers.Singleton(
+            LiteLLMClient,
+            model="gpt-3.5-turbo",
+            api_key=config.provided.llm_api_key,
+            timeout=config.provided.llm_timeout,
+            temperature=config.provided.llm_temperature,
+        ),
+        anthropic=providers.Singleton(
+            LiteLLMClient,
+            model="claude-3-5-sonnet-20241022",
+            api_key=config.provided.llm_api_key,
+            timeout=config.provided.llm_timeout,
+            temperature=config.provided.llm_temperature,
+        ),
+        google=providers.Singleton(
+            LiteLLMClient,
+            model="gemini-1.5-flash",
+            api_key=config.provided.llm_api_key,
+            timeout=config.provided.llm_timeout,
+            temperature=config.provided.llm_temperature,
+        ),
+        litellm=providers.Singleton(
+            LiteLLMClient,
+            model=config.provided.llm_model,
+            api_key=config.provided.llm_api_key,
+            base_url=config.provided.llm_base_url,
+            timeout=config.provided.llm_timeout,
+            temperature=config.provided.llm_temperature,
+        ),
     )
+
+    # Backward compatibility alias
+    ollama_client = llm_client
 
     # AI Categorization Components
     prompt_builder = providers.Singleton(CategorizationPromptBuilder)
@@ -77,10 +113,10 @@ class Container(containers.DeclarativeContainer):
 
     categorization_service = providers.Singleton(
         CategorizationService,
-        ollama_client=ollama_client,
+        ollama_client=llm_client,
         prompt_builder=prompt_builder,
         response_parser=response_parser,
-        batch_size=config.provided.ollama_batch_size,
+        batch_size=config.provided.llm_batch_size,
         confidence_threshold=config.provided.ai_confidence_threshold,
     )
 
