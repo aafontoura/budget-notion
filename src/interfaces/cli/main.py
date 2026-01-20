@@ -847,5 +847,52 @@ def sync_status():
         sys.exit(1)
 
 
+@cli.command()
+@click.argument("output_path", type=click.Path())
+@click.option("--category", help="Filter by category")
+@click.option("--account", help="Filter by account")
+@click.option("--limit", type=int, help="Maximum number of transactions to export")
+def export_csv(output_path: str, category: str, account: str, limit: int):
+    """
+    Export transactions to CSV file.
+
+    Examples:
+        budget-notion export-csv transactions.csv
+        budget-notion export-csv export/food.csv --category "Food & Groceries"
+        budget-notion export-csv recent.csv --limit 100
+    """
+    try:
+        # Get use case
+        use_case = container.export_csv_use_case()
+
+        # Execute export
+        count = use_case.execute(
+            output_path=output_path,
+            category=category,
+            account=account,
+            limit=limit,
+        )
+
+        # Display result
+        click.echo(click.style(f"✓ Exported {count} transactions successfully!", fg="green", bold=True))
+        click.echo(f"  Output file: {output_path}")
+        if category:
+            click.echo(f"  Category filter: {category}")
+        if account:
+            click.echo(f"  Account filter: {account}")
+        if limit:
+            click.echo(f"  Limit: {limit}")
+
+    except Exception as e:
+        # Handle LLM-specific errors with helpful messages
+        if not _handle_llm_error(e):
+            click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+
+        import traceback
+        if settings.log_level.upper() == "DEBUG":
+            click.echo(traceback.format_exc(), err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()

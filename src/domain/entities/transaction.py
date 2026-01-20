@@ -31,6 +31,7 @@ class Transaction:
     amount: Decimal
     category: str
     subcategory: Optional[str] = None
+    summary: Optional[str] = None  # Human-readable description (AI-generated or manual)
     account: Optional[str] = None
     notes: Optional[str] = None
     reviewed: bool = False
@@ -262,6 +263,7 @@ class Transaction:
             amount=kwargs.get('amount', self.amount),
             category=kwargs.get('category', self.category),
             subcategory=kwargs.get('subcategory', self.subcategory),
+            summary=kwargs.get('summary', self.summary),
             account=kwargs.get('account', self.account),
             notes=kwargs.get('notes', self.notes),
             reviewed=kwargs.get('reviewed', self.reviewed),

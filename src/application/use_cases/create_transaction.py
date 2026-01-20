@@ -61,6 +61,7 @@ class CreateTransactionUseCase:
             amount=dto.amount,
             category=dto.category,
             subcategory=dto.subcategory,
+            summary=dto.summary,
             account=dto.account,
             notes=dto.notes,
             tags=dto.tags.copy() if dto.tags else [],

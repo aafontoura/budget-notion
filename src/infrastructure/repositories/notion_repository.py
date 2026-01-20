@@ -405,6 +405,12 @@ class NotionTransactionRepository(TransactionRepository):
             },
         }
 
+        # Add summary if available
+        if transaction.summary:
+            properties["Summary"] = {
+                "rich_text": [{"text": {"content": transaction.summary}}]
+            }
+
         # Add optional properties
         if transaction.account:
             properties["Account"] = {"select": {"name": transaction.account}}
@@ -527,6 +533,14 @@ class NotionTransactionRepository(TransactionRepository):
                 account = account_select.get("name")
 
         notes = self._extract_rich_text(props, "Notes")
+        summary = self._extract_rich_text(props, "Summary")
+
+        # Extract subcategory
+        subcategory = None
+        if "Subcategory" in props and props["Subcategory"] and isinstance(props["Subcategory"], dict):
+            subcat_select = props["Subcategory"].get("select")
+            if subcat_select and isinstance(subcat_select, dict):
+                subcategory = subcat_select.get("name")
 
         ai_confidence = None
         if "AI Confidence" in props and props["AI Confidence"] and isinstance(props["AI Confidence"], dict):
@@ -582,6 +596,8 @@ class NotionTransactionRepository(TransactionRepository):
             description=description,
             amount=amount,
             category=category,
+            subcategory=subcategory,
+            summary=summary,
             account=account,
             notes=notes,
             reviewed=reviewed,

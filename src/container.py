@@ -16,6 +16,7 @@ from src.application.use_cases import (
 )
 from src.application.use_cases.import_camt053 import ImportCAMT053UseCase
 from src.application.use_cases.import_pdf import ImportPDFUseCase
+from src.application.use_cases.export_csv import ExportCSVUseCase
 from src.infrastructure.ai.ollama_client import OllamaClient
 from src.infrastructure.ai.prompt_builder import CategorizationPromptBuilder
 from src.infrastructure.ai.response_parser import CategorizationResponseParser
@@ -176,6 +177,11 @@ class Container(containers.DeclarativeContainer):
     sync_transactions_use_case = providers.Factory(
         SyncTransactionsUseCase,
         sync_service=sync_service,
+    )
+
+    export_csv_use_case = providers.Factory(
+        ExportCSVUseCase,
+        repository=transaction_repository,
     )
 
 

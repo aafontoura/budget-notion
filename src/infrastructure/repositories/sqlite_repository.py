@@ -53,6 +53,8 @@ class SQLiteTransactionRepository(TransactionRepository):
                     description TEXT NOT NULL,
                     amount REAL NOT NULL,
                     category TEXT NOT NULL,
+                    subcategory TEXT,
+                    summary TEXT,
                     account TEXT,
                     notes TEXT,
                     reviewed INTEGER NOT NULL DEFAULT 0,
@@ -107,6 +109,10 @@ class SQLiteTransactionRepository(TransactionRepository):
                 migrations_needed.append("ALTER TABLE transactions ADD COLUMN actual_reimbursement REAL DEFAULT 0.0")
             if 'reimbursement_status' not in columns:
                 migrations_needed.append("ALTER TABLE transactions ADD COLUMN reimbursement_status TEXT DEFAULT 'none'")
+            if 'subcategory' not in columns:
+                migrations_needed.append("ALTER TABLE transactions ADD COLUMN subcategory TEXT")
+            if 'summary' not in columns:
+                migrations_needed.append("ALTER TABLE transactions ADD COLUMN summary TEXT")
 
             for migration in migrations_needed:
                 conn.execute(migration)
@@ -129,18 +135,20 @@ class SQLiteTransactionRepository(TransactionRepository):
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("""
                     INSERT INTO transactions (
-                        id, date, description, amount, category,
+                        id, date, description, amount, category, subcategory, summary,
                         account, notes, reviewed, ai_confidence,
                         tags, reimbursable, expected_reimbursement,
                         actual_reimbursement, reimbursement_status,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     str(transaction.id),
                     transaction.date.isoformat(),
                     transaction.description,
                     float(transaction.amount),
                     transaction.category,
+                    transaction.subcategory,
+                    transaction.summary,
                     transaction.account,
                     transaction.notes,
                     1 if transaction.reviewed else 0,
@@ -265,6 +273,8 @@ class SQLiteTransactionRepository(TransactionRepository):
                         description = ?,
                         amount = ?,
                         category = ?,
+                        subcategory = ?,
+                        summary = ?,
                         account = ?,
                         notes = ?,
                         reviewed = ?,
@@ -281,6 +291,8 @@ class SQLiteTransactionRepository(TransactionRepository):
                     transaction.description,
                     float(transaction.amount),
                     transaction.category,
+                    transaction.subcategory,
+                    transaction.summary,
                     transaction.account,
                     transaction.notes,
                     1 if transaction.reviewed else 0,
@@ -490,6 +502,8 @@ class SQLiteTransactionRepository(TransactionRepository):
             description=row["description"],
             amount=Decimal(str(row["amount"])),
             category=row["category"],
+            subcategory=safe_get("subcategory", None),
+            summary=safe_get("summary", None),
             account=row["account"],
             notes=row["notes"],
             reviewed=bool(row["reviewed"]),

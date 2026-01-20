@@ -15,6 +15,7 @@ class CreateTransactionDTO(BaseModel):
     amount: Decimal
     category: str = Field(..., min_length=1, max_length=100)
     subcategory: Optional[str] = Field(None, max_length=100)
+    summary: Optional[str] = Field(None, max_length=500)  # Human-readable description
     ai_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     account: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=1000)
@@ -54,6 +55,7 @@ class UpdateTransactionDTO(BaseModel):
     description: Optional[str] = Field(None, min_length=1, max_length=500)
     amount: Optional[Decimal] = None
     category: Optional[str] = Field(None, min_length=1, max_length=100)
+    summary: Optional[str] = Field(None, max_length=500)  # Human-readable description
     account: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=1000)
     reviewed: Optional[bool] = None
