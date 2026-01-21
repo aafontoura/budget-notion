@@ -251,10 +251,13 @@ class LiteLLMClient(BaseLLMClient):
             # LiteLLM uses OpenAI's chat format as the standard
             messages = [{"role": "user", "content": prompt}]
 
-            logger.debug(
-                f"Sending request to {self.model} (batch={is_batch}, "
-                f"max_tokens={max_tokens})"
-            )
+            logger.info(f"🤖 Sending request to LiteLLM")
+            logger.info(f"   Model: {self.model} | Batch mode: {is_batch}")
+            logger.info(f"   Options: temperature={temperature}, max_tokens={max_tokens}")
+            logger.debug("─" * 80)
+            logger.debug("📤 PROMPT:")
+            logger.debug(prompt[:500] + ("..." if len(prompt) > 500 else ""))
+            logger.debug("─" * 80)
 
             # Call LiteLLM completion
             response = self.litellm.completion(
@@ -270,9 +273,11 @@ class LiteLLMClient(BaseLLMClient):
             # LiteLLM returns OpenAI-compatible response format
             generated_text = response.choices[0].message.content
 
-            logger.debug(
-                f"Received response from {self.model} ({len(generated_text)} chars)"
-            )
+            logger.debug("─" * 80)
+            logger.debug(f"📥 RESPONSE ({len(generated_text)} chars):")
+            logger.debug(generated_text[:500] + ("..." if len(generated_text) > 500 else ""))
+            logger.debug("─" * 80)
+            logger.info(f"✅ Response received: {len(generated_text)} characters")
 
             return generated_text
 

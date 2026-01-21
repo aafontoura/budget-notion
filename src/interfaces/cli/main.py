@@ -894,5 +894,180 @@ def export_csv(output_path: str, category: str, account: str, limit: int):
         sys.exit(1)
 
 
+@cli.command("llm-test")
+@click.option(
+    "--suite",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Path to test suite YAML/JSON file",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Path to save test results JSON file",
+)
+@click.option(
+    "--prompts",
+    type=str,
+    help="Comma-separated list of prompt IDs to test (default: all)",
+)
+@click.option(
+    "--models",
+    type=str,
+    help="Comma-separated list of model IDs to test (default: all)",
+)
+@click.option(
+    "--transactions",
+    type=str,
+    help="Comma-separated list of transaction IDs to test (default: all)",
+)
+def llm_test(
+    suite: Path,
+    output: Path,
+    prompts: str | None,
+    models: str | None,
+    transactions: str | None,
+):
+    """
+    Run LLM testbed to evaluate categorization/summary performance.
+
+    This command loads a test suite from a YAML/JSON file and systematically
+    tests different prompt variations and models against a set of transactions.
+
+    Example:
+        budget-notion llm-test --suite testbed-examples/categorization-test-suite.yaml --output results/run-001.json
+    """
+    try:
+        from src.testbed.loader import TestSuiteLoader
+        from src.testbed.reporter import TestReporter
+        from src.testbed.runner import TestRunner
+
+        click.echo(click.style("🧪 LLM Testbed", fg="cyan", bold=True))
+        click.echo()
+
+        # Load test suite
+        click.echo(f"Loading test suite: {suite}")
+        test_suite = TestSuiteLoader.load_from_file(suite)
+
+        # Parse filters
+        prompt_ids = prompts.split(",") if prompts else None
+        model_ids = models.split(",") if models else None
+        transaction_ids = transactions.split(",") if transactions else None
+
+        # Show what will be tested
+        click.echo()
+        click.echo(click.style("Test Configuration:", fg="cyan"))
+        click.echo(f"  Suite: {test_suite.name}")
+        click.echo(f"  Transactions: {len(transaction_ids) if transaction_ids else len(test_suite.transactions)}")
+        click.echo(f"  Prompts: {len(prompt_ids) if prompt_ids else len(test_suite.prompts)}")
+        click.echo(f"  Models: {len(model_ids) if model_ids else len(test_suite.models)}")
+
+        total_tests = (
+            (len(transaction_ids) if transaction_ids else len(test_suite.transactions))
+            * (len(prompt_ids) if prompt_ids else len(test_suite.prompts))
+            * (len(model_ids) if model_ids else len(test_suite.models))
+        )
+        click.echo(f"  Total tests: {total_tests}")
+        click.echo()
+
+        # Confirm
+        if not click.confirm("Proceed with test run?"):
+            click.echo("Test cancelled.")
+            return
+
+        # Run tests
+        runner = TestRunner()
+        test_run = runner.run_test_suite(
+            test_suite,
+            prompt_ids=prompt_ids,
+            model_ids=model_ids,
+            transaction_ids=transaction_ids,
+        )
+
+        # Save results
+        output.parent.mkdir(parents=True, exist_ok=True)
+        TestReporter.save_results(test_run, output)
+
+        # Print summary
+        TestReporter.print_summary(test_run)
+
+        click.echo()
+        click.echo(click.style("✓ Test run complete!", fg="green", bold=True))
+        click.echo(f"Results saved to: {output}")
+        click.echo()
+        click.echo("Next steps:")
+        click.echo(f"  1. Review results: cat {output}")
+        click.echo(f"  2. Generate report: budget-notion llm-report --results {output} --output report.md")
+        click.echo(f"  3. Manually evaluate results in the JSON file and re-generate report")
+
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+
+        import traceback
+        if settings.log_level.upper() == "DEBUG":
+            click.echo(traceback.format_exc(), err=True)
+        sys.exit(1)
+
+
+@cli.command("llm-report")
+@click.option(
+    "--results",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Path to test results JSON file",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    help="Path to save report file (optional, prints to console if not specified)",
+)
+@click.option(
+    "--format",
+    type=click.Choice(["summary", "markdown"], case_sensitive=False),
+    default="summary",
+    help="Report format (summary=console, markdown=file)",
+)
+def llm_report(results: Path, output: Path | None, format: str):
+    """
+    Generate report from LLM testbed results.
+
+    Example:
+        budget-notion llm-report --results results/run-001.json --format markdown --output report.md
+    """
+    try:
+        from src.testbed.reporter import TestReporter
+
+        click.echo(click.style("📊 LLM Test Report", fg="cyan", bold=True))
+        click.echo()
+
+        # Load results
+        click.echo(f"Loading results: {results}")
+        test_run = TestReporter.load_results(results)
+
+        if format == "summary":
+            # Print summary to console
+            TestReporter.print_summary(test_run)
+        elif format == "markdown":
+            # Generate markdown report
+            if not output:
+                click.echo(
+                    click.style("✗ Error: --output required for markdown format", fg="red"),
+                    err=True,
+                )
+                sys.exit(1)
+
+            markdown = TestReporter.generate_comparison_table(test_run, output)
+            click.echo(f"\n✓ Report saved to: {output}")
+
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red", bold=True), err=True)
+
+        import traceback
+        if settings.log_level.upper() == "DEBUG":
+            click.echo(traceback.format_exc(), err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()

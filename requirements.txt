@@ -9,6 +9,7 @@ pydantic-settings==2.6.1
 sqlalchemy==2.0.36
 openpyxl==3.1.2
 tenacity==9.0.0  # Retry logic with exponential backoff
+pyyaml==6.0.2  # YAML support for testbed
 
 # Development dependencies
 pytest==8.3.4

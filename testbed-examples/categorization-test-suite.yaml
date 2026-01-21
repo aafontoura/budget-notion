@@ -1,0 +1,237 @@
+name: "Transaction Categorization Test Suite"
+description: "Test suite for evaluating LLM performance on transaction categorization with various prompt templates and models"
+
+# Test transactions with expected outcomes
+transactions:
+  - id: "txn-001"
+    description: "Albert Heijn Amsterdam"
+    amount: -42.50
+    date: "2025-01-15"
+    expected_category: "Food & Groceries"
+    expected_subcategory: "Groceries"
+    notes: "Common supermarket transaction"
+
+  - id: "txn-002"
+    description: "NS GROEP - REIZEN"
+    amount: -25.00
+    date: "2025-01-16"
+    expected_category: "Transportation"
+    expected_subcategory: "Public Transit"
+    notes: "Dutch railways"
+
+  - id: "txn-003"
+    description: "BOOKING.COM - Hotel Amsterdam"
+    amount: -150.00
+    date: "2025-01-20"
+    expected_category: "Travel"
+    expected_subcategory: "Accommodation"
+    notes: "Hotel booking"
+
+  - id: "txn-004"
+    description: "Spotify Premium"
+    amount: -9.99
+    date: "2025-01-01"
+    expected_category: "Entertainment"
+    expected_subcategory: "Streaming Services"
+    notes: "Subscription service"
+
+  - id: "txn-005"
+    description: "Shell Station - Fuel"
+    amount: -65.00
+    date: "2025-01-18"
+    expected_category: "Transportation"
+    expected_subcategory: "Fuel"
+    notes: "Gas station"
+
+  - id: "txn-006"
+    description: "ZIGGO BV - Internet"
+    amount: -50.00
+    date: "2025-01-01"
+    expected_category: "Bills & Utilities"
+    expected_subcategory: "Internet"
+    notes: "Monthly internet bill"
+
+  - id: "txn-007"
+    description: "De Bijenkorf - Clothing"
+    amount: -89.95
+    date: "2025-01-14"
+    expected_category: "Shopping"
+    expected_subcategory: "Clothing"
+    notes: "Department store"
+
+  - id: "txn-008"
+    description: "IKEA Amsterdam"
+    amount: -125.00
+    date: "2025-01-12"
+    expected_category: "Home & Garden"
+    expected_subcategory: "Furniture"
+    notes: "Furniture store"
+
+  - id: "txn-009"
+    description: "McDonald's Amsterdam"
+    amount: -12.50
+    date: "2025-01-17"
+    expected_category: "Food & Dining"
+    expected_subcategory: "Fast Food"
+    notes: "Quick service restaurant"
+
+  - id: "txn-010"
+    description: "Salary Payment - ACME Corp"
+    amount: 3500.00
+    date: "2025-01-25"
+    expected_category: "Income"
+    expected_subcategory: "Salary"
+    notes: "Monthly salary"
+
+# Prompt configurations
+prompts:
+  # Current system prompt (full categorization)
+  - id: "system-full-v1"
+    name: "System Full Categorization (Current)"
+    description: "Current production prompt for full categorization (category + subcategory)"
+    template: |
+      Categorize this transaction. Reply ONLY with JSON.
+
+      Categories and Subcategories:
+      - Food & Groceries: Groceries, Farmers Market, Specialty Food, Health Food
+      - Food & Dining: Restaurants, Fast Food, Coffee Shop, Bars & Pubs
+      - Transportation: Public Transit, Fuel, Parking, Taxi & Rideshare
+      - Shopping: Clothing, Electronics, Books, Gifts
+      - Bills & Utilities: Electricity, Water, Gas, Internet
+      - Entertainment: Streaming Services, Movies & Theater, Games, Events
+      - Travel: Flights, Accommodation, Travel Activities
+      - Home & Garden: Furniture, Home Improvement, Garden Supplies
+      - Health & Fitness: Medical, Pharmacy, Gym, Sports
+      - Income: Salary, Freelance, Investment Income
+
+      Transaction:
+      - Date: {date}
+      - Description: "{description}"
+      - Amount: €{amount}
+
+      JSON format (no explanation):
+      {{"category": "CATEGORY", "subcategory": "Subcategory", "confidence": 0.90}}
+
+      Example: {{"category": "FOOD & GROCERIES", "subcategory": "Groceries", "confidence": 0.95}}
+    variables: {}
+
+  # Compact variant with less instructions
+  - id: "compact-v1"
+    name: "Compact Categorization"
+    description: "Minimal prompt with less verbose instructions"
+    template: |
+      Categorize: "{description}" | €{amount} | {date}
+
+      Categories: Food & Groceries, Food & Dining, Transportation, Shopping, Bills & Utilities, Entertainment, Travel, Home & Garden, Health & Fitness, Income
+
+      Reply with JSON only:
+      {{"category": "...", "subcategory": "...", "confidence": 0.95}}
+    variables: {}
+
+  # More structured prompt
+  - id: "structured-v1"
+    name: "Structured Categorization"
+    description: "Highly structured prompt with clear sections"
+    template: |
+      ## TASK
+      Categorize the following transaction.
+
+      ## TRANSACTION DATA
+      - Description: {description}
+      - Amount: €{amount}
+      - Date: {date}
+
+      ## AVAILABLE CATEGORIES
+      1. Food & Groceries (Groceries, Farmers Market, Specialty Food)
+      2. Food & Dining (Restaurants, Fast Food, Coffee Shop, Bars)
+      3. Transportation (Public Transit, Fuel, Parking, Taxi)
+      4. Shopping (Clothing, Electronics, Books, Gifts)
+      5. Bills & Utilities (Electricity, Water, Gas, Internet)
+      6. Entertainment (Streaming Services, Movies, Games, Events)
+      7. Travel (Flights, Accommodation, Travel Activities)
+      8. Home & Garden (Furniture, Home Improvement, Garden)
+      9. Health & Fitness (Medical, Pharmacy, Gym, Sports)
+      10. Income (Salary, Freelance, Investment Income)
+
+      ## OUTPUT FORMAT
+      Respond with ONLY a JSON object (no explanation):
+      {{"category": "category name", "subcategory": "subcategory name", "confidence": 0.XX}}
+    variables: {}
+
+  # Few-shot learning variant
+  - id: "few-shot-v1"
+    name: "Few-Shot Learning"
+    description: "Prompt with examples to guide the model"
+    template: |
+      Categorize transactions. Reply with JSON only.
+
+      Examples:
+      1. "Albert Heijn" | €-45 → {{"category": "Food & Groceries", "subcategory": "Groceries", "confidence": 0.95}}
+      2. "NS Train Ticket" | €-12 → {{"category": "Transportation", "subcategory": "Public Transit", "confidence": 0.92}}
+      3. "Netflix" | €-12.99 → {{"category": "Entertainment", "subcategory": "Streaming Services", "confidence": 0.98}}
+
+      Now categorize:
+      "{description}" | €{amount}
+
+      Categories: Food & Groceries, Food & Dining, Transportation, Shopping, Bills & Utilities, Entertainment, Travel, Home & Garden, Health & Fitness, Income
+    variables: {}
+
+# Model configurations
+models:
+  # Local Ollama models
+  - id: "llama-3.1-8b"
+    provider: "ollama"
+    model_name: "llama3.1:8b"
+    temperature: 0.1
+    max_tokens: 100
+    base_url: "http://localhost:11434"
+
+  - id: "llama-3.2-3b"
+    provider: "ollama"
+    model_name: "llama3.2:3b"
+    temperature: 0.1
+    max_tokens: 100
+    base_url: "http://localhost:11434"
+
+  - id: "mistral-7b"
+    provider: "ollama"
+    model_name: "mistral:7b"
+    temperature: 0.1
+    max_tokens: 100
+    base_url: "http://localhost:11434"
+
+  # Commercial models (uncomment and add API keys to use)
+  # - id: "gpt-3.5-turbo"
+  #   provider: "openai"
+  #   model_name: "gpt-3.5-turbo"
+  #   temperature: 0.1
+  #   max_tokens: 100
+  #   api_key: "sk-..."  # Or set OPENAI_API_KEY environment variable
+
+  # - id: "gpt-4"
+  #   provider: "openai"
+  #   model_name: "gpt-4"
+  #   temperature: 0.1
+  #   max_tokens: 100
+  #   api_key: "sk-..."
+
+  # - id: "claude-3-5-sonnet"
+  #   provider: "anthropic"
+  #   model_name: "claude-3-5-sonnet-20241022"
+  #   temperature: 0.1
+  #   max_tokens: 100
+  #   api_key: "sk-ant-..."
+
+  # - id: "gemini-1.5-flash"
+  #   provider: "google"
+  #   model_name: "gemini-1.5-flash"
+  #   temperature: 0.1
+  #   max_tokens: 100
+  #   api_key: "..."
+
+  # - id: "groq-llama-3.1"
+  #   provider: "groq"
+  #   model_name: "groq/llama-3.1-8b-instant"
+  #   temperature: 0.1
+  #   max_tokens: 100
+  #   api_key: "gsk_..."

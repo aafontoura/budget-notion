@@ -278,12 +278,13 @@ class CategorizationService:
 
         while retry_count <= self.max_batch_retries:
             try:
+                logger.info("=" * 80)
                 logger.info(
-                    f"Processing batch {batch_num}/{total_batches} "
+                    f"📊 Processing batch {batch_num}/{total_batches} "
                     f"({len(batch)} transactions)"
                     + (f" [retry {retry_count}/{self.max_batch_retries}]" if retry_count > 0 else "")
-                    + "..."
                 )
+                logger.info("=" * 80)
 
                 # Build optimized batch prompt
                 batch_prompt = self.prompt_builder.build_optimized_batch_prompt(batch)
@@ -298,10 +299,12 @@ class CategorizationService:
                     batch_response, batch_ids
                 )
 
+                logger.info("=" * 80)
                 logger.info(
-                    f"Batch {batch_num}/{total_batches} complete "
-                    f"({len(batch_results)} results)"
+                    f"✅ Batch {batch_num}/{total_batches} complete: "
+                    f"{len(batch_results)} transactions categorized"
                 )
+                logger.info("=" * 80)
 
                 return batch_results
 
@@ -309,56 +312,70 @@ class CategorizationService:
                 retry_count += 1
 
                 if retry_count > self.max_batch_retries:
+                    logger.warning("⚠️ " + "=" * 76)
                     logger.warning(
-                        f"Batch {batch_num} rate limit retries exhausted. "
+                        f"⚠️ Batch {batch_num} rate limit retries exhausted. "
                         "Falling back to individual processing."
                     )
+                    logger.warning("⚠️ " + "=" * 76)
                     break
 
                 # Use retry_after from error if available, otherwise exponential backoff
                 wait_time = e.retry_after if e.retry_after else base_wait_time * (2 ** (retry_count - 1))
 
+                logger.warning("⏳ " + "─" * 76)
                 logger.warning(
-                    f"Rate limit reached for batch {batch_num}. "
+                    f"⏳ Rate limit reached for batch {batch_num}. "
                     f"Waiting {wait_time}s before retry {retry_count}/{self.max_batch_retries}..."
                 )
+                logger.warning("⏳ " + "─" * 76)
                 time.sleep(wait_time)
 
             except TransientError as e:
                 retry_count += 1
 
                 if retry_count > self.max_batch_retries:
+                    logger.warning("⚠️ " + "=" * 76)
                     logger.warning(
-                        f"Batch {batch_num} transient error retries exhausted. "
+                        f"⚠️ Batch {batch_num} transient error retries exhausted. "
                         "Falling back to individual processing."
                     )
+                    logger.warning("⚠️ " + "=" * 76)
                     break
 
                 # Exponential backoff for transient errors
                 wait_time = base_wait_time * (2 ** (retry_count - 1))
 
+                logger.warning("⏳ " + "─" * 76)
                 logger.warning(
-                    f"Transient error for batch {batch_num}: {e}. "
+                    f"⏳ Transient error for batch {batch_num}: {e}. "
                     f"Waiting {wait_time}s before retry {retry_count}/{self.max_batch_retries}..."
                 )
+                logger.warning("⏳ " + "─" * 76)
                 time.sleep(wait_time)
 
             except PermanentError as e:
                 # Don't retry permanent errors (auth, validation, etc.)
+                logger.error("❌ " + "=" * 76)
                 logger.error(
-                    f"Permanent error for batch {batch_num}: {e}. "
+                    f"❌ Permanent error for batch {batch_num}: {e}. "
                     "Not retrying. Falling back to individual processing."
                 )
+                logger.error("❌ " + "=" * 76)
                 break
 
             except (OllamaError, Exception) as e:
                 # Legacy error handling for backward compatibility
-                logger.error(f"Batch {batch_num} categorization failed: {e}")
-                logger.info(f"Falling back to individual processing for batch {batch_num}")
+                logger.error("❌ " + "=" * 76)
+                logger.error(f"❌ Batch {batch_num} categorization failed: {e}")
+                logger.info(f"🔄 Falling back to individual processing for batch {batch_num}")
+                logger.error("❌ " + "=" * 76)
                 break
 
         # Fallback: process individually
-        logger.info(f"Processing batch {batch_num} transactions individually...")
+        logger.info("🔄 " + "=" * 76)
+        logger.info(f"🔄 Processing batch {batch_num} transactions individually...")
+        logger.info("🔄 " + "=" * 76)
         results = {}
 
         for txn in batch:

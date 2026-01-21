@@ -176,8 +176,13 @@ class OllamaClient(BaseLLMClient):
                 "keep_alive": "30m",  # Keep model loaded during batch jobs
             }
 
-            logger.debug(f"Sending request to Ollama: {self.base_url}/api/generate")
-            logger.debug(f"Batch mode: {is_batch}, Payload options: {generation_options}")
+            logger.info(f"🤖 Sending request to Ollama: {self.base_url}/api/generate")
+            logger.info(f"   Model: {self.model} | Batch mode: {is_batch}")
+            logger.info(f"   Options: {generation_options}")
+            logger.debug("─" * 80)
+            logger.debug("📤 PROMPT:")
+            logger.debug(prompt[:500] + ("..." if len(prompt) > 500 else ""))
+            logger.debug("─" * 80)
 
             response = self.client.post(
                 f"{self.base_url}/api/generate",
@@ -189,7 +194,11 @@ class OllamaClient(BaseLLMClient):
             result = response.json()
             generated_text = result.get("response", "")
 
-            logger.debug(f"Received response ({len(generated_text)} chars)")
+            logger.debug("─" * 80)
+            logger.debug(f"📥 RESPONSE ({len(generated_text)} chars):")
+            logger.debug(generated_text[:500] + ("..." if len(generated_text) > 500 else ""))
+            logger.debug("─" * 80)
+            logger.info(f"✅ Response received: {len(generated_text)} characters")
 
             return generated_text
 
